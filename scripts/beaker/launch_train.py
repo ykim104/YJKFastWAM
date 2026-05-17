@@ -188,7 +188,7 @@ def main() -> int:
     parser.add_argument("--workspace", default="ai2/yejink-workspace", help="Beaker workspace")
     parser.add_argument("--budget", default="ai2/robots", help="Beaker budget account")
     parser.add_argument("--priority", default="normal", choices=["low", "normal", "high", "urgent", "immediate"])
-    parser.add_argument("--weka-volume", default="oe-training", help="Weka volume name")
+    parser.add_argument("--weka-volume", default="oe-training-default", help="Weka bucket name")
     parser.add_argument("--code-dir", default=None, help="Repo path on weka (default: /weka/<vol>/<user>/YJKFastWam)")
     parser.add_argument("--data-root", default=None, help="Dataset root (default: /weka/<vol>/<user>/data)")
     parser.add_argument("--checkpoints-root", default=None, help="Checkpoints root (default: /weka/<vol>/<user>/checkpoints)")

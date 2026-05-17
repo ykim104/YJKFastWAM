@@ -9,7 +9,7 @@
 #           gantry config && beaker account whoami
 # Gantry installs via --install (torch cu128 index + pip install -e . from pyproject.toml).
 # Code on Weka is used via CODE_DIR; gantry also clones the repo for the install step.
-# Data, checkpoints, and runs use /weka/oe-training/<user>/{data,checkpoints,runs} (Hydra paths=weka).
+# Data, checkpoints, and runs use /weka/oe-training-default/<user>/{data,checkpoints,runs} (Hydra paths=weka).
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ NUM_NODES=1
 WORKSPACE="ai2/yejink-workspace"
 BUDGET="ai2/robotics"
 PRIORITY="normal"
-WEKA_VOLUME="oe-training"
+WEKA_VOLUME="oe-training-default"
 CLUSTER="ai2/jupiter"
 PRECOMPUTE_TEXT=0
 WANDB=1

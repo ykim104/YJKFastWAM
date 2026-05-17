@@ -9,7 +9,7 @@ PRECOMPUTE_TEXT="${PRECOMPUTE_TEXT:-0}"
 
 cd "${CODE_DIR}"
 
-WEKA_ROOT="${WEKA_ROOT:-/weka/oe-training/${USER_NAME:-yejink}}"
+WEKA_ROOT="${WEKA_ROOT:-/weka/oe-training-default/${USER_NAME:-yejink}}"
 export FASTWAM_DATA_ROOT="${FASTWAM_DATA_ROOT:-${WEKA_ROOT}/data}"
 export FASTWAM_CHECKPOINTS_ROOT="${FASTWAM_CHECKPOINTS_ROOT:-${WEKA_ROOT}/checkpoints}"
 export FASTWAM_RUNS_ROOT="${FASTWAM_RUNS_ROOT:-${WEKA_ROOT}/runs}"
