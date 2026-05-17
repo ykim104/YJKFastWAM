@@ -5,7 +5,8 @@
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_uncond_2cam224_1e-4 --gpus 8 --wandb
 #
-# Requires: pip install beaker-gantry && gantry config (see TAMP/CLAUDE.md)
+# Requires: pip install beaker-py beaker-gantry  (NOT the PyPI package named "beaker")
+#           gantry config && beaker account whoami
 # Gantry installs via --install (torch cu128 index + pip install -e . from pyproject.toml).
 # Code on Weka is used via CODE_DIR; gantry also clones the repo for the install step.
 # Data, checkpoints, and runs use /weka/oe-training/<user>/{data,checkpoints,runs} (Hydra paths=weka).
@@ -23,6 +24,7 @@ WEKA_VOLUME="oe-training"
 CLUSTER="ai2/jupiter"
 PRECOMPUTE_TEXT=0
 WANDB=1
+WANDB_SECRET=""
 EXTRA=()
 
 usage() {
@@ -43,6 +45,8 @@ while [[ $# -gt 0 ]]; do
     --cluster) CLUSTER="$2"; shift 2 ;;
     --precompute-text) PRECOMPUTE_TEXT=1; shift ;;
     --wandb) WANDB=1; shift ;;
+    --no-wandb) WANDB=0; shift ;;
+    --wandb-secret) WANDB_SECRET="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) EXTRA+=("$1"); shift ;;
   esac
@@ -120,7 +124,10 @@ if [[ "${NUM_NODES}" -gt 1 ]]; then
 fi
 
 if [[ "${WANDB}" == "1" ]]; then
-  GANTRY_ARGS+=(--env-secret WANDB_API_KEY)
+  if [[ -z "${WANDB_SECRET}" ]]; then
+    WANDB_SECRET="$(echo "${USER_NAME}" | tr '[:lower:]' '[:upper:]')_WANDB_API_KEY"
+  fi
+  GANTRY_ARGS+=(--env-secret "WANDB_API_KEY=${WANDB_SECRET}")
 fi
 
 cd "${REPO_ROOT}"
