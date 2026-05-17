@@ -2,6 +2,11 @@
 # Runs inside a Beaker container. Invoked by launch_train.py / gantry.
 set -euo pipefail
 
+beaker_on_err() {
+  echo "[beaker] ERROR: exit $? at ${BASH_SOURCE[1]}:${BASH_LINENO[0]}: ${BASH_COMMAND}" >&2
+}
+trap beaker_on_err ERR
+
 NUM_GPUS="${NUM_GPUS:-8}"
 TASK="${TASK:?Set TASK (e.g. libero_triple_2cam224_1e-4)}"
 PRECOMPUTE_TEXT="${PRECOMPUTE_TEXT:-0}"
@@ -30,6 +35,15 @@ export HYDRA_OVERRIDES="${HYDRA_OVERRIDES:-paths=weka paths.weka_user=${USER_NAM
 
 echo "[beaker] data=${FASTWAM_DATA_ROOT} checkpoints=${FASTWAM_CHECKPOINTS_ROOT} runs=${FASTWAM_RUNS_ROOT}"
 
+beaker_check_weka() {
+  if [[ ! -d "/weka/oe-training" ]]; then
+    echo "[beaker] ERROR: Weka not mounted at /weka/oe-training (is --weka oe-training-default:/weka/oe-training set?)" >&2
+    ls -la /weka 2>&1 || true
+    exit 1
+  fi
+  echo "[beaker] Weka mount OK: /weka/oe-training"
+}
+
 # ~48GB GPUs (L40/L40S) cannot run libero defaults (batch_size=16, no grad checkpointing).
 # BEAKER_LOW_VRAM=1 forces overrides; =0 disables; auto (default) detects from nvidia-smi.
 beaker_apply_low_vram_overrides() {
@@ -47,11 +61,21 @@ beaker_maybe_low_vram() {
       ;;
   esac
   if ! command -v nvidia-smi >/dev/null 2>&1; then
+    echo "[beaker] nvidia-smi not found; skipping low-VRAM overrides"
     return 0
   fi
-  local mem_mib
-  mem_mib="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')"
-  if [[ -z "${mem_mib}" ]]; then
+  local mem_mib smi_rc=0
+  # Do not use bare pipelines here: set -o pipefail + failed nvidia-smi exits the whole job silently.
+  set +o pipefail
+  mem_mib="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ,')"
+  smi_rc=$?
+  set -o pipefail
+  if (( smi_rc != 0 )); then
+    echo "[beaker] nvidia-smi failed (rc=${smi_rc}); skipping low-VRAM overrides"
+    return 0
+  fi
+  if [[ ! "${mem_mib}" =~ ^[0-9]+$ ]]; then
+    echo "[beaker] Could not parse GPU memory from nvidia-smi (got '${mem_mib}'); skipping low-VRAM overrides"
     return 0
   fi
   # 49152 MiB ≈ 48GB class (L40); published libero configs assume ~80GB (H100).
@@ -62,7 +86,9 @@ beaker_maybe_low_vram() {
   fi
 }
 
+echo "[beaker] Detecting GPU memory for low-VRAM overrides (BEAKER_LOW_VRAM=${BEAKER_LOW_VRAM:-auto})..."
 beaker_maybe_low_vram
+echo "[beaker] HYDRA_OVERRIDES=${HYDRA_OVERRIDES}"
 
 # Multi-node (Beaker leader selection + host networking).
 if [[ -n "${BEAKER_REPLICA_COUNT:-}" && "${BEAKER_REPLICA_COUNT}" -gt 1 ]]; then
@@ -73,6 +99,8 @@ if [[ -n "${BEAKER_REPLICA_COUNT:-}" && "${BEAKER_REPLICA_COUNT}" -gt 1 ]]; then
   echo "[beaker] multi-node NNODES=${NNODES} NODE_RANK=${NODE_RANK} MASTER_ADDR=${MASTER_ADDR}"
 fi
 
+beaker_check_weka
+echo "[beaker] Creating output dirs..."
 mkdir -p "${DIFFSYNTH_MODEL_BASE_PATH}" "${FASTWAM_RUNS_ROOT}"
 
 _beaker_ensure_pip() {
@@ -108,6 +136,7 @@ _beaker_ensure_nvcc() {
   beaker_setup_cuda
 }
 
+echo "[beaker] Checking Python deps..."
 if ! "${PYTHON}" -c "import accelerate, fastwam, torch" 2>/dev/null; then
   if [[ "${SKIP_PIP_INSTALL:-0}" == "1" ]]; then
     echo "[beaker] WARNING: SKIP_PIP_INSTALL=1 but deps missing; installing anyway." >&2
@@ -115,6 +144,7 @@ if ! "${PYTHON}" -c "import accelerate, fastwam, torch" 2>/dev/null; then
   _beaker_install_deps
 fi
 
+echo "[beaker] Configuring CUDA for DeepSpeed..."
 # DeepSpeed calls nvcc -V at import; pip nvidia-cuda-nvcc-cu12 has no nvcc binary.
 _beaker_ensure_nvcc || {
   echo "[beaker] ERROR: could not configure CUDA_HOME for DeepSpeed." >&2
