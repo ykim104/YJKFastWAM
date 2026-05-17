@@ -113,7 +113,8 @@ else
   OUTPUT_DIR="./runs/${TASK_BASENAME}/${RUN_ID}"
 fi
 
-accelerate launch \
+PYTHON="${PYTHON:-python}"
+"${PYTHON}" -m accelerate.commands.launch \
   --config_file scripts/accelerate_configs/accelerate_zero1_ds.yaml \
   --num_processes "${NPROC_PER_NODE}" \
   scripts/train.py \

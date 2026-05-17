@@ -22,7 +22,6 @@ BUDGET="ai2/robotics"
 PRIORITY="normal"
 WEKA_BUCKET="oe-training-default"
 WEKA_MOUNT="oe-training"
-CLUSTER="ai2/saturn"
 PRECOMPUTE_TEXT=0
 WANDB=1
 WANDB_SECRET="wandb-api-key"
@@ -103,7 +102,11 @@ GANTRY_ARGS=(
   --shared-memory 64GiB
   --memory 200GiB
   --weka "${WEKA_BUCKET}:/weka/${WEKA_MOUNT}"
-  --cluster "${CLUSTER}"
+  --cluster "ai2/saturn"
+  --cluster "ai2/jupiter"
+  --cluster "ai2/neptune"
+  --cluster "ai2/rhea"
+  --cluster "ai2/ceres"
   --env "USER_NAME=${USER_NAME}"
   --env "TASK=${TASK}"
   --env "NUM_GPUS=${NUM_GPUS}"
@@ -114,7 +117,7 @@ GANTRY_ARGS=(
   --env "DIFFSYNTH_MODEL_BASE_PATH=${CHECKPOINT_ROOT}"
   --env "HYDRA_OVERRIDES=${HYDRA_OVERRIDES}"
   --env "SKIP_PIP_INSTALL=1"
-  --install "pip install -U pip && pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchcodec==0.5 --extra-index-url https://download.pytorch.org/whl/cu128 && pip install -e ."
+  --install "pip install -U pip && pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchcodec==0.5 --extra-index-url https://download.pytorch.org/whl/cu128 && pip install nvidia-cuda-nvcc-cu12 && pip install -e ."
   --default-python-version 3.10
   --name "fastwam-${TASK}"
   --description "FastWAM ${TASK} (${USER_NAME})"

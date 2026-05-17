@@ -18,6 +18,9 @@ else
   echo "[beaker] Using gantry/git checkout: $(pwd)"
 fi
 
+# shellcheck source=setup_job_env.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup_job_env.sh"
+
 WEKA_ROOT="${WEKA_ROOT:-/weka/oe-training/${USER_NAME:-yejink}}"
 export FASTWAM_DATA_ROOT="${FASTWAM_DATA_ROOT:-${WEKA_ROOT}/data}"
 export FASTWAM_CHECKPOINTS_ROOT="${FASTWAM_CHECKPOINTS_ROOT:-${WEKA_ROOT}/checkpoints}"
@@ -39,18 +42,21 @@ fi
 mkdir -p "${DIFFSYNTH_MODEL_BASE_PATH}" "${FASTWAM_RUNS_ROOT}"
 
 if [[ "${SKIP_PIP_INSTALL:-0}" != "1" ]]; then
-  if ! python -c "import fastwam, torch" 2>/dev/null; then
+  if ! "${PYTHON}" -c "import fastwam, torch, deepspeed" 2>/dev/null; then
     echo "[beaker] Installing fastwam (torch cu128 + editable install from pyproject.toml)..."
-    pip install -U pip
-    pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchcodec==0.5 \
+    "${PYTHON}" -m pip install -U pip
+    "${PYTHON}" -m pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchcodec==0.5 \
       --extra-index-url https://download.pytorch.org/whl/cu128
-    pip install -e .
+    "${PYTHON}" -m pip install nvidia-cuda-nvcc-cu12
+    "${PYTHON}" -m pip install -e .
+    # shellcheck source=setup_job_env.sh
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup_job_env.sh"
   fi
 fi
 
 if [[ "${PRECOMPUTE_TEXT}" == "1" ]]; then
   echo "[beaker] Precomputing T5 text embeddings for task=${TASK}..."
-  torchrun --standalone --nproc_per_node="${NUM_GPUS}" \
+  "${PYTHON}" -m torch.distributed.run --standalone --nproc_per_node="${NUM_GPUS}" \
     scripts/precompute_text_embeds.py "task=${TASK}"
 fi
 
