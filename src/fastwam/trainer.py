@@ -363,7 +363,7 @@ class Wan22Trainer:
                     f"`context/context_mask` must be [B,L,D]/[B,L], got {tuple(context.shape)} and {tuple(context_mask.shape)}"
                 )
 
-        return {
+        batched = {
             "video": video,
             "prompt": prompt,
             "action": action,
@@ -372,6 +372,43 @@ class Wan22Trainer:
             "context_mask": context_mask,
             "action_horizon": action_horizon,
         }
+
+        if "track_video" in sample:
+            track_video = sample["track_video"]
+            if not isinstance(track_video, torch.Tensor):
+                raise TypeError(
+                    f"`sample['track_video']` must be a torch.Tensor, got {type(track_video)}"
+                )
+            if track_video.ndim == 4:
+                track_video = track_video.unsqueeze(0)
+            if track_video.ndim != 5:
+                raise ValueError(
+                    f"`sample['track_video']` must be [3,T,H,W] or [B,3,T,H,W], got {tuple(track_video.shape)}"
+                )
+            if track_video.shape[0] != video.shape[0]:
+                raise ValueError(
+                    "Track/video batch mismatch: "
+                    f"track batch={track_video.shape[0]} vs video batch={video.shape[0]}"
+                )
+            if track_video.shape != video.shape:
+                raise ValueError(
+                    f"`track_video` shape {tuple(track_video.shape)} must match `video` shape {tuple(video.shape)}"
+                )
+            batched["track_video"] = track_video
+
+        for pad_key in ("image_is_pad", "action_is_pad"):
+            if pad_key not in sample:
+                continue
+            pad = sample[pad_key]
+            if not isinstance(pad, torch.Tensor):
+                raise TypeError(f"`sample['{pad_key}']` must be a torch.Tensor, got {type(pad)}")
+            if pad.ndim == 1:
+                pad = pad.unsqueeze(0)
+            if pad.ndim != 2:
+                raise ValueError(f"`sample['{pad_key}']` must be [T] or [B,T], got {tuple(pad.shape)}")
+            batched[pad_key] = pad
+
+        return batched
 
     @torch.no_grad()
     def evaluate(self):

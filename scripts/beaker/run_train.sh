@@ -54,24 +54,21 @@ beaker_check_weka() {
 }
 
 # ~48GB GPUs (L40/L40S) cannot run libero defaults (batch_size=16, no grad checkpointing).
+# Triple co-denoising on ~80GB (H100/A100-80G) also needs smaller batch + grad checkpointing.
 # BEAKER_LOW_VRAM=1 forces overrides; =0 disables; auto (default) detects from nvidia-smi.
-beaker_apply_low_vram_overrides() {
-  local mem_mib="${1:-}"
-  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} batch_size=8 gradient_accumulation_steps=2 model.mot_checkpoint_mixed_attn=true"
-  echo "[beaker] low-VRAM Hydra overrides (GPU ${mem_mib} MiB): batch_size=8 grad_accum=2 mot_checkpoint=true"
+beaker_is_triple_task() {
+  [[ "${TASK}" == *triple* ]]
 }
 
-beaker_maybe_low_vram() {
-  case "${BEAKER_LOW_VRAM:-auto}" in
-    0|false|no) return 0 ;;
-    1|true|yes)
-      beaker_apply_low_vram_overrides "forced"
-      return 0
-      ;;
-  esac
+beaker_apply_memory_overrides() {
+  local reason="${1:-}"
+  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} batch_size=8 gradient_accumulation_steps=2 model.mot_checkpoint_mixed_attn=true"
+  echo "[beaker] memory Hydra overrides (${reason}): batch_size=8 grad_accum=2 mot_checkpoint=true"
+}
+
+beaker_query_gpu_mem_mib() {
   if ! command -v nvidia-smi >/dev/null 2>&1; then
-    echo "[beaker] nvidia-smi not found; skipping low-VRAM overrides"
-    return 0
+    return 1
   fi
   local mem_mib smi_rc=0
   # Do not use bare pipelines here: set -o pipefail + failed nvidia-smi exits the whole job silently.
@@ -80,23 +77,52 @@ beaker_maybe_low_vram() {
   smi_rc=$?
   set -o pipefail
   if (( smi_rc != 0 )); then
-    echo "[beaker] nvidia-smi failed (rc=${smi_rc}); skipping low-VRAM overrides"
-    return 0
+    return 1
   fi
   if [[ ! "${mem_mib}" =~ ^[0-9]+$ ]]; then
-    echo "[beaker] Could not parse GPU memory from nvidia-smi (got '${mem_mib}'); skipping low-VRAM overrides"
+    return 1
+  fi
+  echo "${mem_mib}"
+}
+
+beaker_maybe_memory_overrides() {
+  case "${BEAKER_LOW_VRAM:-auto}" in
+    0|false|no)
+      if beaker_is_triple_task; then
+        local mem_mib=""
+        if mem_mib="$(beaker_query_gpu_mem_mib)"; then
+          # 75000–90000 MiB ≈ 80GB class (H100-80G, A100-80G); skip 96GB+ where batch 16 may fit.
+          if (( mem_mib > 49152 && mem_mib < 90000 )); then
+            beaker_apply_memory_overrides "triple task on ${mem_mib} MiB GPU"
+          fi
+        fi
+      fi
+      return 0
+      ;;
+    1|true|yes)
+      beaker_apply_memory_overrides "BEAKER_LOW_VRAM forced"
+      return 0
+      ;;
+  esac
+
+  local mem_mib=""
+  if ! mem_mib="$(beaker_query_gpu_mem_mib)"; then
+    echo "[beaker] nvidia-smi unavailable; skipping memory overrides"
     return 0
   fi
-  # 49152 MiB ≈ 48GB class (L40); published libero configs assume ~80GB (H100).
+
+  # 49152 MiB ≈ 48GB class (L40); published libero configs assume ~80GB+ for joint/uncond.
   if (( mem_mib <= 49152 )); then
-    beaker_apply_low_vram_overrides "${mem_mib}"
+    beaker_apply_memory_overrides "GPU ${mem_mib} MiB (<=48GB)"
+  elif beaker_is_triple_task && (( mem_mib < 90000 )); then
+    beaker_apply_memory_overrides "triple task on ${mem_mib} MiB GPU"
   else
     echo "[beaker] GPU ${mem_mib} MiB — using task defaults (batch_size from Hydra)"
   fi
 }
 
-echo "[beaker] Detecting GPU memory for low-VRAM overrides (BEAKER_LOW_VRAM=${BEAKER_LOW_VRAM:-auto})..."
-beaker_maybe_low_vram
+echo "[beaker] Detecting GPU memory for overrides (BEAKER_LOW_VRAM=${BEAKER_LOW_VRAM:-auto}, TASK=${TASK})..."
+beaker_maybe_memory_overrides
 echo "[beaker] HYDRA_OVERRIDES=${HYDRA_OVERRIDES}"
 
 # Multi-node (Beaker leader selection + host networking).

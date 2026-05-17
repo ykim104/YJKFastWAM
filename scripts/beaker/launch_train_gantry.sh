@@ -27,6 +27,7 @@ PRECOMPUTE_TEXT=0
 WANDB=1
 WANDB_SECRET="YEJINK_WANDB_API_KEY" #wandb-api-key"
 EXTRA=()
+GANTRY_EXTRA=()
 
 usage() {
   sed -n '2,12p' "$0"
@@ -49,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --precompute-text) PRECOMPUTE_TEXT=1; shift ;;
     --low-vram) export BEAKER_LOW_VRAM=1; shift ;;
     --no-low-vram) export BEAKER_LOW_VRAM=0; shift ;;
+    --allow-dirty) GANTRY_EXTRA+=("$1"); shift ;;
     --wandb) WANDB=1; shift ;;
     --no-wandb) WANDB=0; shift ;;
     --wandb-secret) WANDB_SECRET="$2"; shift 2 ;;
@@ -119,6 +121,7 @@ GANTRY_ARGS=(
   --env "FASTWAM_RUNS_ROOT=${RUNS_ROOT}"
   --env "DIFFSYNTH_MODEL_BASE_PATH=${CHECKPOINT_ROOT}"
   --env "HYDRA_OVERRIDES=${HYDRA_OVERRIDES}"
+  --env "BEAKER_LOW_VRAM=${BEAKER_LOW_VRAM:-auto}"
   --python-manager uv
   --uv-torch-backend cu128
   --default-python-version 3.10
@@ -152,4 +155,4 @@ echo "[paths] data=${DATA_ROOT} checkpoints=${CHECKPOINT_ROOT} runs=${RUNS_ROOT}
 echo "[wandb] enabled=$([[ "${WANDB}" == "1" ]] && echo true || echo false)"
 echo ">>> ${GANTRY_CMD} ${GANTRY_ARGS[*]} -- bash scripts/beaker/run_train.sh"
 # shellcheck disable=SC2086
-exec ${GANTRY_CMD} "${GANTRY_ARGS[@]}" -- bash scripts/beaker/run_train.sh
+exec ${GANTRY_CMD} "${GANTRY_ARGS[@]}" "${GANTRY_EXTRA[@]}" -- bash scripts/beaker/run_train.sh
