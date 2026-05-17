@@ -527,6 +527,18 @@ class LeRobotDataset(torch.utils.data.Dataset):
             # check_delta_timestamps(self.delta_timestamps, self.fps, self.tolerance_s)
             self.delta_indices = get_delta_indices(self.delta_timestamps, self.fps)
 
+    def _training_video_keys(self) -> list[str]:
+        """Video streams to decode in ``__getitem__`` during training.
+
+        When ``delta_timestamps`` is set (FastWAM), only decode keys the dataloader
+        requested. LeRobot otherwise decodes every ``meta.video_keys`` entry; extra
+        keys such as ``observation.points.*`` (registered for triple training) must
+        not be loaded for uncond runs, and may be shorter than RGB if AllTracker failed.
+        """
+        if self.delta_timestamps is not None:
+            return [key for key in self.meta.video_keys if key in self.delta_timestamps]
+        return list(self.meta.video_keys)
+
     def push_to_hub(
         self,
         branch: str | None = None,
@@ -697,7 +709,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         query_indices: dict[str, list[int]] | None = None,
     ) -> dict[str, list[float]]:
         query_timestamps = {}
-        for key in self.meta.video_keys:
+        for key in self._training_video_keys():
             if query_indices is not None and key in query_indices:
                 timestamps = self.hf_dataset.select(query_indices[key])["timestamp"]
                 query_timestamps[key] = torch.stack(timestamps).tolist()
@@ -777,7 +789,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
             for key, val in query_result.items():
                 item[key] = val
 
-        if len(self.meta.video_keys) > 0 and self.during_training:
+        training_video_keys = self._training_video_keys()
+        if len(training_video_keys) > 0 and self.during_training:
             current_ts = item["timestamp"].item()
             query_timestamps = self._get_query_timestamps(current_ts, query_indices)
             video_frames = self._query_videos(query_timestamps, ep_idx)
