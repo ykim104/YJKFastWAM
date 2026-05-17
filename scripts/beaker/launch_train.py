@@ -28,7 +28,7 @@ def _yaml_quote(value: str) -> str:
 
 
 def _weka_paths(args: argparse.Namespace) -> tuple[str, str, str, str]:
-    weka_root = f"/weka/{args.weka_volume}/{args.user_name}"
+    weka_root = f"/weka/{args.weka_mount}/{args.user_name}"
     data_root = args.data_root or f"{weka_root}/data"
     checkpoints_root = args.checkpoints_root or args.model_base_path or f"{weka_root}/checkpoints"
     runs_root = args.runs_root or f"{weka_root}/runs"
@@ -36,7 +36,7 @@ def _weka_paths(args: argparse.Namespace) -> tuple[str, str, str, str]:
 
 
 def build_yaml(args: argparse.Namespace) -> str:
-    code_dir = args.code_dir or f"/weka/{args.weka_volume}/{args.user_name}/YJKFastWam"
+    code_dir = args.code_dir or f"/weka/{args.weka_mount}/{args.user_name}/YJKFastWam"
     run_script = args.run_script or f"{code_dir}/scripts/beaker/run_train.sh"
     weka_root, data_root, checkpoints_root, runs_root = _weka_paths(args)
 
@@ -110,9 +110,9 @@ def build_yaml(args: argparse.Namespace) -> str:
         "  - >-",
         f"    bash {run_script}",
         "  datasets:",
-        f"  - mountPath: /weka/{args.weka_volume}",
+        f"  - mountPath: /weka/{args.weka_mount}",
         "    source:",
-        f"      weka: {args.weka_volume}",
+        f"      weka: {args.weka_bucket}",
         "  result:",
         "    path: /data/results",
         "  envVars:",
@@ -141,7 +141,7 @@ def build_yaml(args: argparse.Namespace) -> str:
 
 
 def print_summary(args: argparse.Namespace) -> None:
-    code_dir = args.code_dir or f"/weka/{args.weka_volume}/{args.user_name}/YJKFastWam"
+    code_dir = args.code_dir or f"/weka/{args.weka_mount}/{args.user_name}/YJKFastWam"
     weka_root, data_root, checkpoints_root, runs_root = _weka_paths(args)
     print("=" * 50)
     print(f" FastWAM training — {args.task}")
@@ -188,11 +188,25 @@ def main() -> int:
     parser.add_argument("--workspace", default="ai2/yejink-workspace", help="Beaker workspace")
     parser.add_argument("--budget", default="ai2/robots", help="Beaker budget account")
     parser.add_argument("--priority", default="normal", choices=["low", "normal", "high", "urgent", "immediate"])
-    parser.add_argument("--weka-volume", default="oe-training-default", help="Weka bucket name")
-    parser.add_argument("--code-dir", default=None, help="Repo path on weka (default: /weka/<vol>/<user>/YJKFastWam)")
-    parser.add_argument("--data-root", default=None, help="Dataset root (default: /weka/<vol>/<user>/data)")
-    parser.add_argument("--checkpoints-root", default=None, help="Checkpoints root (default: /weka/<vol>/<user>/checkpoints)")
-    parser.add_argument("--runs-root", default=None, help="Training outputs root (default: /weka/<vol>/<user>/runs)")
+    parser.add_argument(
+        "--weka-bucket",
+        default="oe-training-default",
+        help="Beaker Weka bucket name (default: oe-training-default)",
+    )
+    parser.add_argument(
+        "--weka-mount",
+        default="oe-training",
+        help="Mount path suffix: files at /weka/<mount>/... (default: oe-training)",
+    )
+    parser.add_argument(
+        "--weka-volume",
+        default=None,
+        help="Alias for --weka-bucket (deprecated)",
+    )
+    parser.add_argument("--code-dir", default=None, help="Repo on weka (default: /weka/<mount>/<user>/YJKFastWam)")
+    parser.add_argument("--data-root", default=None, help="Dataset root (default: /weka/<mount>/<user>/data)")
+    parser.add_argument("--checkpoints-root", default=None, help="Checkpoints root (default: /weka/<mount>/<user>/checkpoints)")
+    parser.add_argument("--runs-root", default=None, help="Training outputs (default: /weka/<mount>/<user>/runs)")
     parser.add_argument("--model-base-path", default=None, help="Alias for --checkpoints-root (DIFFSYNTH_MODEL_BASE_PATH)")
     parser.add_argument("--beaker-image", default=None, help="Beaker image (user/name)")
     parser.add_argument(
@@ -220,6 +234,8 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Print YAML only, do not submit")
     parser.add_argument("--save-yaml", default=None, help="Write generated YAML to this path")
     args = parser.parse_args()
+    if args.weka_volume is not None:
+        args.weka_bucket = args.weka_volume
 
     exp_label = args.experiment_id or args.task
     args.description = f"FastWAM train {exp_label} ({args.user_name}, {args.num_nodes}x{args.num_gpus} GPU)"

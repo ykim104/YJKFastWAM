@@ -1,7 +1,7 @@
 # @package paths
-# Beaker / cluster: persistent storage under /weka/oe-training-default/<user>/.
-weka_volume: oe-training-default
+# Beaker mounts bucket oe-training-default at /weka/oe-training (not /weka/oe-training-default).
+weka_mount: oe-training
 weka_user: yejink
-data_root: /weka/${paths.weka_volume}/${paths.weka_user}/data
-checkpoints_root: /weka/${paths.weka_volume}/${paths.weka_user}/checkpoints
-runs_root: /weka/${paths.weka_volume}/${paths.weka_user}/runs
+data_root: /weka/${paths.weka_mount}/${paths.weka_user}/data
+checkpoints_root: /weka/${paths.weka_mount}/${paths.weka_user}/checkpoints
+runs_root: /weka/${paths.weka_mount}/${paths.weka_user}/runs

@@ -7,8 +7,9 @@
 #   ./scripts/beaker/launch_train.sh --user-name yejink --task libero_triple_2cam224_1e-4 --precompute-text --dry-run
 #
 # Requires: beaker CLI authenticated (`beaker account whoami`)
-# Code: /weka/oe-training-default/<user>/YJKFastWam
-# Data / checkpoints / runs: /weka/oe-training-default/<user>/{data,checkpoints,runs}
+# Mount oe-training-default at /weka/oe-training
+# Code: /weka/oe-training/<user>/YJKFastWam
+# Data / checkpoints / runs: /weka/oe-training/<user>/{data,checkpoints,runs}
 
 set -euo pipefail
 

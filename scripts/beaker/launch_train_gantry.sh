@@ -9,7 +9,7 @@
 #           gantry config && beaker account whoami
 # Gantry installs via --install (torch cu128 index + pip install -e . from pyproject.toml).
 # Code on Weka is used via CODE_DIR; gantry also clones the repo for the install step.
-# Data, checkpoints, and runs use /weka/oe-training-default/<user>/{data,checkpoints,runs} (Hydra paths=weka).
+# Mount: oe-training-default -> /weka/oe-training; data at /weka/oe-training/<user>/{data,checkpoints,runs}.
 
 set -euo pipefail
 
@@ -20,7 +20,8 @@ NUM_NODES=1
 WORKSPACE="ai2/yejink-workspace"
 BUDGET="ai2/robotics"
 PRIORITY="normal"
-WEKA_VOLUME="oe-training-default"
+WEKA_BUCKET="oe-training-default"
+WEKA_MOUNT="oe-training"
 CLUSTER="ai2/jupiter"
 PRECOMPUTE_TEXT=0
 WANDB=1
@@ -41,7 +42,9 @@ while [[ $# -gt 0 ]]; do
     --workspace) WORKSPACE="$2"; shift 2 ;;
     --budget) BUDGET="$2"; shift 2 ;;
     --priority) PRIORITY="$2"; shift 2 ;;
-    --weka-volume) WEKA_VOLUME="$2"; shift 2 ;;
+    --weka-bucket) WEKA_BUCKET="$2"; shift 2 ;;
+    --weka-mount) WEKA_MOUNT="$2"; shift 2 ;;
+    --weka-volume) WEKA_BUCKET="$2"; shift 2 ;;  # alias for --weka-bucket
     --cluster) CLUSTER="$2"; shift 2 ;;
     --precompute-text) PRECOMPUTE_TEXT=1; shift ;;
     --wandb) WANDB=1; shift ;;
@@ -76,8 +79,8 @@ resolve_gantry() {
 }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CODE_DIR="/weka/${WEKA_VOLUME}/${USER_NAME}/YJKFastWam"
-WEKA_ROOT="/weka/${WEKA_VOLUME}/${USER_NAME}"
+CODE_DIR="/weka/${WEKA_MOUNT}/${USER_NAME}/YJKFastWam"
+WEKA_ROOT="/weka/${WEKA_MOUNT}/${USER_NAME}"
 DATA_ROOT="${WEKA_ROOT}/data"
 CHECKPOINT_ROOT="${WEKA_ROOT}/checkpoints"
 RUNS_ROOT="${WEKA_ROOT}/runs"
@@ -100,7 +103,7 @@ GANTRY_ARGS=(
   --replicas "${NUM_NODES}"
   --shared-memory 64GiB
   --memory 200GiB
-  --weka "${WEKA_VOLUME}:/weka/${WEKA_VOLUME}"
+  --weka "${WEKA_BUCKET}:/weka/${WEKA_MOUNT}"
   --cluster "${CLUSTER}"
   --env "USER_NAME=${USER_NAME}"
   --env "CODE_DIR=${CODE_DIR}"
