@@ -4,10 +4,19 @@ set -euo pipefail
 
 NUM_GPUS="${NUM_GPUS:-8}"
 TASK="${TASK:?Set TASK (e.g. libero_triple_2cam224_1e-4)}"
-CODE_DIR="${CODE_DIR:-$(pwd)}"
 PRECOMPUTE_TEXT="${PRECOMPUTE_TEXT:-0}"
 
-cd "${CODE_DIR}"
+# Gantry clones the repo into the job cwd; only cd when CODE_DIR is set and exists (raw Beaker on Weka).
+if [[ -n "${CODE_DIR:-}" ]]; then
+  if [[ ! -d "${CODE_DIR}" ]]; then
+    echo "[beaker] ERROR: CODE_DIR=${CODE_DIR} does not exist." >&2
+    echo "[beaker] For gantry jobs, omit CODE_DIR and use the cloned checkout at $(pwd)." >&2
+    exit 1
+  fi
+  cd "${CODE_DIR}"
+else
+  echo "[beaker] Using gantry/git checkout: $(pwd)"
+fi
 
 WEKA_ROOT="${WEKA_ROOT:-/weka/oe-training/${USER_NAME:-yejink}}"
 export FASTWAM_DATA_ROOT="${FASTWAM_DATA_ROOT:-${WEKA_ROOT}/data}"

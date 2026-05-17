@@ -8,8 +8,8 @@
 # Requires: pip install beaker-py beaker-gantry  (NOT the PyPI package named "beaker")
 #           gantry config && beaker account whoami
 # Gantry installs via --install (torch cu128 index + pip install -e . from pyproject.toml).
-# Code on Weka is used via CODE_DIR; gantry also clones the repo for the install step.
-# Mount: oe-training-default -> /weka/oe-training; data at /weka/oe-training/<user>/{data,checkpoints,runs}.
+# Gantry clones this repo into the job workspace (--install + run_train.sh use that checkout).
+# Weka (oe-training-default -> /weka/oe-training) is only for data, checkpoints, and runs.
 
 set -euo pipefail
 
@@ -79,7 +79,6 @@ resolve_gantry() {
 }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CODE_DIR="/weka/${WEKA_MOUNT}/${USER_NAME}/YJKFastWam"
 WEKA_ROOT="/weka/${WEKA_MOUNT}/${USER_NAME}"
 DATA_ROOT="${WEKA_ROOT}/data"
 CHECKPOINT_ROOT="${WEKA_ROOT}/checkpoints"
@@ -106,7 +105,6 @@ GANTRY_ARGS=(
   --weka "${WEKA_BUCKET}:/weka/${WEKA_MOUNT}"
   --cluster "${CLUSTER}"
   --env "USER_NAME=${USER_NAME}"
-  --env "CODE_DIR=${CODE_DIR}"
   --env "TASK=${TASK}"
   --env "NUM_GPUS=${NUM_GPUS}"
   --env "PRECOMPUTE_TEXT=${PRECOMPUTE_TEXT}"

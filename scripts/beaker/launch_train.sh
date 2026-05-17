@@ -7,9 +7,9 @@
 #   ./scripts/beaker/launch_train.sh --user-name yejink --task libero_triple_2cam224_1e-4 --precompute-text --dry-run
 #
 # Requires: beaker CLI authenticated (`beaker account whoami`)
-# Mount oe-training-default at /weka/oe-training
-# Code: /weka/oe-training/<user>/YJKFastWam
-# Data / checkpoints / runs: /weka/oe-training/<user>/{data,checkpoints,runs}
+# Gantry: code comes from git clone in the job (no Weka copy required).
+# Weka (oe-training-default -> /weka/oe-training): data, checkpoints, runs only.
+# launch_train.py (raw Beaker): optional --code-dir on Weka if not using gantry.
 
 set -euo pipefail
 
