@@ -30,6 +30,40 @@ export HYDRA_OVERRIDES="${HYDRA_OVERRIDES:-paths=weka paths.weka_user=${USER_NAM
 
 echo "[beaker] data=${FASTWAM_DATA_ROOT} checkpoints=${FASTWAM_CHECKPOINTS_ROOT} runs=${FASTWAM_RUNS_ROOT}"
 
+# ~48GB GPUs (L40/L40S) cannot run libero defaults (batch_size=16, no grad checkpointing).
+# BEAKER_LOW_VRAM=1 forces overrides; =0 disables; auto (default) detects from nvidia-smi.
+beaker_apply_low_vram_overrides() {
+  local mem_mib="${1:-}"
+  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} batch_size=8 gradient_accumulation_steps=2 model.mot_checkpoint_mixed_attn=true"
+  echo "[beaker] low-VRAM Hydra overrides (GPU ${mem_mib} MiB): batch_size=8 grad_accum=2 mot_checkpoint=true"
+}
+
+beaker_maybe_low_vram() {
+  case "${BEAKER_LOW_VRAM:-auto}" in
+    0|false|no) return 0 ;;
+    1|true|yes)
+      beaker_apply_low_vram_overrides "forced"
+      return 0
+      ;;
+  esac
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    return 0
+  fi
+  local mem_mib
+  mem_mib="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')"
+  if [[ -z "${mem_mib}" ]]; then
+    return 0
+  fi
+  # 49152 MiB ≈ 48GB class (L40); published libero configs assume ~80GB (H100).
+  if (( mem_mib <= 49152 )); then
+    beaker_apply_low_vram_overrides "${mem_mib}"
+  else
+    echo "[beaker] GPU ${mem_mib} MiB — using task defaults (batch_size from Hydra)"
+  fi
+}
+
+beaker_maybe_low_vram
+
 # Multi-node (Beaker leader selection + host networking).
 if [[ -n "${BEAKER_REPLICA_COUNT:-}" && "${BEAKER_REPLICA_COUNT}" -gt 1 ]]; then
   export NNODES="${BEAKER_REPLICA_COUNT}"

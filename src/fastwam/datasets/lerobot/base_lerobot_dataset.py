@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 from pathlib import Path
@@ -137,10 +138,14 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
                 else:
                     episodes.update({meta.repo_id: [episode_indices[i] for i in range(split_idx, meta.total_episodes)]})
 
+        video_backend = os.environ.get("FASTWAM_LEROBOT_VIDEO_BACKEND") or os.environ.get(
+            "LEROBOT_VIDEO_BACKEND"
+        )
         self.multi_dataset = MultiLeRobotDataset(
             dataset_dirs=self.dataset_dirs,
             episodes=episodes,
             delta_timestamps=delta_timestamps,
+            video_backend=video_backend,
         )
         
         # HACK: lerobot 3.0 will fix this

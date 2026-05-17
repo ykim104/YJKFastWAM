@@ -46,6 +46,8 @@ while [[ $# -gt 0 ]]; do
     --weka-volume) WEKA_BUCKET="$2"; shift 2 ;;  # alias for --weka-bucket
     --cluster) CLUSTER="$2"; shift 2 ;;
     --precompute-text) PRECOMPUTE_TEXT=1; shift ;;
+    --low-vram) export BEAKER_LOW_VRAM=1; shift ;;
+    --no-low-vram) export BEAKER_LOW_VRAM=0; shift ;;
     --wandb) WANDB=1; shift ;;
     --no-wandb) WANDB=0; shift ;;
     --wandb-secret) WANDB_SECRET="$2"; shift 2 ;;

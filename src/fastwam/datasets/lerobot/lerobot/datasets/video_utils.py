@@ -16,6 +16,7 @@
 import glob
 import importlib
 import logging
+import os
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,13 +31,17 @@ from PIL import Image
 
 
 def get_safe_default_codec():
+    forced = os.environ.get("FASTWAM_LEROBOT_VIDEO_BACKEND") or os.environ.get(
+        "LEROBOT_VIDEO_BACKEND"
+    )
+    if forced:
+        return forced
     if importlib.util.find_spec("torchcodec"):
         return "torchcodec"
-    else:
-        logging.warning(
-            "'torchcodec' is not available in your platform, falling back to 'pyav' as a default decoder"
-        )
-        return "pyav"
+    logging.warning(
+        "'torchcodec' is not available in your platform, falling back to 'pyav' as a default decoder"
+    )
+    return "pyav"
 
 
 def decode_video_frames(

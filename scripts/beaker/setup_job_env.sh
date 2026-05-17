@@ -19,6 +19,10 @@ echo "[beaker] PYTHON_INCLUDE=${_py_include}"
 export DS_SKIP_CUDA_CHECK="${DS_SKIP_CUDA_CHECK:-1}"
 export DS_INFERENCE="${DS_INFERENCE:-0}"
 
+# torchcodec is installed but often missing libnppicc on Beaker images; pyav avoids per-frame warnings.
+export FASTWAM_LEROBOT_VIDEO_BACKEND="${FASTWAM_LEROBOT_VIDEO_BACKEND:-pyav}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
 # Beaker images often export CUDA_HOME without a usable nvcc.
 if [[ -n "${CUDA_HOME:-}" && ! -x "${CUDA_HOME}/bin/nvcc" ]]; then
   unset CUDA_HOME
