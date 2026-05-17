@@ -68,16 +68,14 @@ _beaker_install_deps() {
   "${PYTHON}" -m pip install nvidia-cuda-nvcc-cu12
 }
 
-if ! "${PYTHON}" -c "import accelerate, deepspeed, fastwam, torch" 2>/dev/null; then
+if ! "${PYTHON}" -c "import accelerate, fastwam, torch" 2>/dev/null; then
   if [[ "${SKIP_PIP_INSTALL:-0}" == "1" ]]; then
     echo "[beaker] WARNING: SKIP_PIP_INSTALL=1 but deps missing; installing anyway." >&2
   fi
   _beaker_install_deps
 fi
 
-"${PYTHON}" -c "import accelerate, deepspeed, fastwam, torch; print('[beaker] deps OK')"
-
-# Configure CUDA_HOME for DeepSpeed (needs nvidia-cuda-nvcc-cu12 from install above).
+# DeepSpeed needs nvcc at import time; set CUDA_HOME before importing deepspeed.
 export BEAKER_SETUP_CUDA=1
 # shellcheck source=setup_job_env.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup_job_env.sh"
@@ -85,9 +83,9 @@ if ! beaker_setup_cuda; then
   echo "[beaker] ERROR: nvcc required for DeepSpeed ZeRO. pip install nvidia-cuda-nvcc-cu12 failed?" >&2
   exit 1
 fi
+"${PYTHON}" -c "import accelerate, fastwam, torch; print('[beaker] deps OK')"
 if ! "${PYTHON}" -c "import deepspeed; print('[beaker] deepspeed OK:', deepspeed.__version__)"; then
-  echo "[beaker] ERROR: deepspeed import failed (often missing Python.h for Triton JIT)." >&2
-  echo "[beaker] PYTHON_INCLUDE should be set; try re-running with latest launch_train_gantry.sh." >&2
+  echo "[beaker] ERROR: deepspeed import failed." >&2
   exit 1
 fi
 

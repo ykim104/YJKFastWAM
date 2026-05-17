@@ -20,29 +20,32 @@ export DS_SKIP_CUDA_CHECK="${DS_SKIP_CUDA_CHECK:-1}"
 # Training only (ZeRO); avoid pulling inference Triton kernels at import when possible.
 export DS_INFERENCE="${DS_INFERENCE:-0}"
 
+# Beaker images often export CUDA_HOME without a usable nvcc.
+if [[ -n "${CUDA_HOME:-}" && ! -x "${CUDA_HOME}/bin/nvcc" ]]; then
+  unset CUDA_HOME
+fi
+
 beaker_setup_cuda() {
-  local candidate nvcc_path pkg_home cuda_home
+  local candidate nvcc_path pkg_home
 
-  for candidate in "${CUDA_HOME:-}" /usr/local/cuda /usr/local/cuda-12.8 /usr/local/cuda-12.6 /usr/local/cuda-12.4; do
-    if [[ -n "${candidate}" && -x "${candidate}/bin/nvcc" ]]; then
-      export CUDA_HOME="${candidate}"
-      export PATH="${CUDA_HOME}/bin:${PATH}"
-      echo "[beaker] CUDA_HOME=${CUDA_HOME}"
-      return 0
-    fi
-  done
-
-  if nvcc_path="$(command -v nvcc 2>/dev/null)"; then
-    export CUDA_HOME="$(cd "$(dirname "${nvcc_path}")/.." && pwd)"
-    export PATH="${CUDA_HOME}/bin:${PATH}"
-    echo "[beaker] CUDA_HOME=${CUDA_HOME}"
-    return 0
+  # Image often sets CUDA_HOME=/usr/local/cuda without nvcc; DeepSpeed trusts the env var.
+  if [[ -n "${CUDA_HOME:-}" && ! -x "${CUDA_HOME}/bin/nvcc" ]]; then
+    echo "[beaker] Ignoring CUDA_HOME=${CUDA_HOME} (no bin/nvcc)"
+    unset CUDA_HOME
   fi
 
   pkg_home="$("${PYTHON}" -c "
-import sysconfig
 from pathlib import Path
-for nvcc in Path(sysconfig.get_paths()['purelib']).rglob('nvcc'):
+try:
+    import nvidia.cuda_nvcc as m
+    root = Path(m.__file__).resolve().parent
+    if (root / 'bin' / 'nvcc').is_file():
+        print(root)
+        raise SystemExit(0)
+except ImportError:
+    pass
+import sysconfig
+for nvcc in Path(sysconfig.get_paths()['purelib']).rglob('bin/nvcc'):
     if nvcc.is_file():
         print(nvcc.resolve().parent.parent)
         break
@@ -50,9 +53,25 @@ for nvcc in Path(sysconfig.get_paths()['purelib']).rglob('nvcc'):
   if [[ -n "${pkg_home}" && -x "${pkg_home}/bin/nvcc" ]]; then
     export CUDA_HOME="${pkg_home}"
     export PATH="${CUDA_HOME}/bin:${PATH}"
-    echo "[beaker] CUDA_HOME=${CUDA_HOME}"
+    echo "[beaker] CUDA_HOME=${CUDA_HOME} (pip nvidia-cuda-nvcc)"
     return 0
   fi
+
+  if nvcc_path="$(command -v nvcc 2>/dev/null)"; then
+    export CUDA_HOME="$(cd "$(dirname "${nvcc_path}")/.." && pwd)"
+    export PATH="${CUDA_HOME}/bin:${PATH}"
+    echo "[beaker] CUDA_HOME=${CUDA_HOME} (PATH nvcc)"
+    return 0
+  fi
+
+  for candidate in /usr/local/cuda /usr/local/cuda-12.8 /usr/local/cuda-12.6 /usr/local/cuda-12.4; do
+    if [[ -x "${candidate}/bin/nvcc" ]]; then
+      export CUDA_HOME="${candidate}"
+      export PATH="${CUDA_HOME}/bin:${PATH}"
+      echo "[beaker] CUDA_HOME=${CUDA_HOME}"
+      return 0
+    fi
+  done
 
   echo "[beaker] WARNING: nvcc not found; DeepSpeed import may fail." >&2
   return 1
