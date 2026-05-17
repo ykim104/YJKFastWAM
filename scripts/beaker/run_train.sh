@@ -41,13 +41,21 @@ fi
 
 mkdir -p "${DIFFSYNTH_MODEL_BASE_PATH}" "${FASTWAM_RUNS_ROOT}"
 
+_beaker_ensure_pip() {
+  if "${PYTHON}" -m pip --version >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "[beaker] Bootstrapping pip in gantry venv..."
+  "${PYTHON}" -m ensurepip --upgrade
+  "${PYTHON}" -m pip install -U pip wheel setuptools
+}
+
 _beaker_install_deps() {
   echo "[beaker] Installing fastwam + training deps into ${PYTHON}..."
+  _beaker_ensure_pip
   "${PYTHON}" -m pip install -U pip
   "${PYTHON}" -m pip install -e . --extra-index-url https://download.pytorch.org/whl/cu128
   "${PYTHON}" -m pip install nvidia-cuda-nvcc-cu12
-  # shellcheck source=setup_job_env.sh
-  source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup_job_env.sh"
 }
 
 if ! "${PYTHON}" -c "import accelerate, deepspeed, fastwam, torch" 2>/dev/null; then
@@ -58,6 +66,16 @@ if ! "${PYTHON}" -c "import accelerate, deepspeed, fastwam, torch" 2>/dev/null; 
 fi
 
 "${PYTHON}" -c "import accelerate, deepspeed, fastwam, torch; print('[beaker] deps OK')"
+
+# Configure CUDA_HOME for DeepSpeed (needs nvidia-cuda-nvcc-cu12 from install above).
+export BEAKER_SETUP_CUDA=1
+# shellcheck source=setup_job_env.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup_job_env.sh"
+if ! beaker_setup_cuda; then
+  echo "[beaker] ERROR: nvcc required for DeepSpeed ZeRO. pip install nvidia-cuda-nvcc-cu12 failed?" >&2
+  exit 1
+fi
+"${PYTHON}" -c "import deepspeed; print('[beaker] deepspeed OK:', deepspeed.__version__)"
 
 if [[ "${PRECOMPUTE_TEXT}" == "1" ]]; then
   echo "[beaker] Precomputing T5 text embeddings for task=${TASK}..."

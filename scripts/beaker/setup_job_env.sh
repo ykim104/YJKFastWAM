@@ -9,18 +9,27 @@ fi
 export PYTHON="${PYTHON:-$(command -v python)}"
 echo "[beaker] PYTHON=${PYTHON} ($("${PYTHON}" --version 2>&1))"
 
-_resolve_cuda_home() {
-  local candidate nvcc_path pkg_home
+export DS_SKIP_CUDA_CHECK="${DS_SKIP_CUDA_CHECK:-1}"
+
+beaker_setup_cuda() {
+  local candidate nvcc_path pkg_home cuda_home
+
   for candidate in "${CUDA_HOME:-}" /usr/local/cuda /usr/local/cuda-12.8 /usr/local/cuda-12.6 /usr/local/cuda-12.4; do
     if [[ -n "${candidate}" && -x "${candidate}/bin/nvcc" ]]; then
-      echo "${candidate}"
+      export CUDA_HOME="${candidate}"
+      export PATH="${CUDA_HOME}/bin:${PATH}"
+      echo "[beaker] CUDA_HOME=${CUDA_HOME}"
       return 0
     fi
   done
+
   if nvcc_path="$(command -v nvcc 2>/dev/null)"; then
-    echo "$(cd "$(dirname "${nvcc_path}")/.." && pwd)"
+    export CUDA_HOME="$(cd "$(dirname "${nvcc_path}")/.." && pwd)"
+    export PATH="${CUDA_HOME}/bin:${PATH}"
+    echo "[beaker] CUDA_HOME=${CUDA_HOME}"
     return 0
   fi
+
   pkg_home="$("${PYTHON}" -c "
 import sysconfig
 from pathlib import Path
@@ -30,18 +39,17 @@ for nvcc in Path(sysconfig.get_paths()['purelib']).rglob('nvcc'):
         break
 " 2>/dev/null || true)"
   if [[ -n "${pkg_home}" && -x "${pkg_home}/bin/nvcc" ]]; then
-    echo "${pkg_home}"
+    export CUDA_HOME="${pkg_home}"
+    export PATH="${CUDA_HOME}/bin:${PATH}"
+    echo "[beaker] CUDA_HOME=${CUDA_HOME}"
     return 0
   fi
+
+  echo "[beaker] WARNING: nvcc not found; DeepSpeed import may fail." >&2
   return 1
 }
 
-if cuda_home="$(_resolve_cuda_home)"; then
-  export CUDA_HOME="${cuda_home}"
-  export PATH="${CUDA_HOME}/bin:${PATH}"
-  echo "[beaker] CUDA_HOME=${CUDA_HOME}"
-else
-  echo "[beaker] WARNING: nvcc not found; DeepSpeed import may fail." >&2
+# Only probe CUDA after deps are installed (BEAKER_SETUP_CUDA=1 from run_train.sh).
+if [[ "${BEAKER_SETUP_CUDA:-0}" == "1" ]]; then
+  beaker_setup_cuda || true
 fi
-
-export DS_SKIP_CUDA_CHECK="${DS_SKIP_CUDA_CHECK:-1}"
