@@ -41,18 +41,23 @@ fi
 
 mkdir -p "${DIFFSYNTH_MODEL_BASE_PATH}" "${FASTWAM_RUNS_ROOT}"
 
-if [[ "${SKIP_PIP_INSTALL:-0}" != "1" ]]; then
-  if ! "${PYTHON}" -c "import fastwam, torch, deepspeed" 2>/dev/null; then
-    echo "[beaker] Installing fastwam (torch cu128 + editable install from pyproject.toml)..."
-    "${PYTHON}" -m pip install -U pip
-    "${PYTHON}" -m pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchcodec==0.5 \
-      --extra-index-url https://download.pytorch.org/whl/cu128
-    "${PYTHON}" -m pip install nvidia-cuda-nvcc-cu12
-    "${PYTHON}" -m pip install -e .
-    # shellcheck source=setup_job_env.sh
-    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup_job_env.sh"
+_beaker_install_deps() {
+  echo "[beaker] Installing fastwam + training deps into ${PYTHON}..."
+  "${PYTHON}" -m pip install -U pip
+  "${PYTHON}" -m pip install -e . --extra-index-url https://download.pytorch.org/whl/cu128
+  "${PYTHON}" -m pip install nvidia-cuda-nvcc-cu12
+  # shellcheck source=setup_job_env.sh
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup_job_env.sh"
+}
+
+if ! "${PYTHON}" -c "import accelerate, deepspeed, fastwam, torch" 2>/dev/null; then
+  if [[ "${SKIP_PIP_INSTALL:-0}" == "1" ]]; then
+    echo "[beaker] WARNING: SKIP_PIP_INSTALL=1 but deps missing; installing anyway." >&2
   fi
+  _beaker_install_deps
 fi
+
+"${PYTHON}" -c "import accelerate, deepspeed, fastwam, torch; print('[beaker] deps OK')"
 
 if [[ "${PRECOMPUTE_TEXT}" == "1" ]]; then
   echo "[beaker] Precomputing T5 text embeddings for task=${TASK}..."
