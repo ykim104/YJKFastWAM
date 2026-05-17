@@ -187,8 +187,8 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             "action_is_pad": sample["action_is_pad"],
             "proprio_is_pad": sample["proprio_is_pad"],
         }
-        if  is not None:
-            data["track_vidtrack_videoeo"] = track_video
+        if track_video is not None:
+            data["track_video"] = track_video
         return data
 
     def _prepare_video_tensor(self, pixel_values: torch.Tensor) -> torch.Tensor:
