@@ -25,7 +25,7 @@ WEKA_BUCKET="oe-training-default"
 WEKA_MOUNT="oe-training"
 PRECOMPUTE_TEXT=0
 WANDB=1
-WANDB_SECRET="wandb-api-key"
+WANDB_SECRET="YEJINK_WANDB_API_KEY" #wandb-api-key"
 EXTRA=()
 
 usage() {
