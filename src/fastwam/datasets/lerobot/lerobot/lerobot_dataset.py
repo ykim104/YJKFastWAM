@@ -80,6 +80,10 @@ import traceback
 CODEBASE_VERSION = "v2.1"
 
 
+def is_local_lerobot_root(root: Path) -> bool:
+    return (Path(root) / "meta" / "info.json").is_file()
+
+
 class LeRobotDatasetMetadata:
     def __init__(
         self,
@@ -96,10 +100,12 @@ class LeRobotDatasetMetadata:
             if force_cache_sync:
                 raise FileNotFoundError
             self.load_metadata()
-        except (FileNotFoundError, NotADirectoryError):
-            # if is_valid_version(self.revision):
-            #     self.revision = get_safe_version(self.repo_id, self.revision)
-
+        except (FileNotFoundError, NotADirectoryError) as err:
+            if is_local_lerobot_root(self.root):
+                raise FileNotFoundError(
+                    f"Incomplete local LeRobot dataset at {self.root} ({err}). "
+                    "Refusing HuggingFace download."
+                ) from err
             (self.root / "meta").mkdir(exist_ok=True, parents=True)
             self.pull_from_repo(allow_patterns="meta/")
             self.load_metadata()
@@ -124,6 +130,8 @@ class LeRobotDatasetMetadata:
         allow_patterns: list[str] | str | None = None,
         ignore_patterns: list[str] | str | None = None,
     ) -> None:
+        if is_local_lerobot_root(self.root):
+            return
         snapshot_download(
             self.repo_id,
             repo_type="dataset",
@@ -491,8 +499,17 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 raise FileNotFoundError
             assert all((self.root / fpath).is_file() for fpath in self.get_episodes_file_paths())
             self.hf_dataset = self.load_hf_dataset()
-        except (AssertionError, FileNotFoundError, NotADirectoryError):
-            # self.revision = get_safe_version(self.repo_id, self.revision)
+        except (AssertionError, FileNotFoundError, NotADirectoryError) as err:
+            if is_local_lerobot_root(self.root):
+                missing = [
+                    str(self.root / fpath)
+                    for fpath in self.get_episodes_file_paths()
+                    if not (self.root / fpath).is_file()
+                ]
+                raise FileNotFoundError(
+                    f"Local LeRobot dataset at {self.root} is missing {len(missing)} file(s). "
+                    f"Examples: {missing[:5]}"
+                ) from err
             self.revision = CODEBASE_VERSION
             self.download_episodes(download_videos)
             self.hf_dataset = self.load_hf_dataset()
@@ -571,6 +588,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
         allow_patterns: list[str] | str | None = None,
         ignore_patterns: list[str] | str | None = None,
     ) -> None:
+        if is_local_lerobot_root(self.root):
+            return
         snapshot_download(
             self.repo_id,
             repo_type="dataset",

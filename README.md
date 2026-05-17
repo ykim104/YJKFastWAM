@@ -258,7 +258,14 @@ bash scripts/train_zero1.sh 8 task=libero_uncond_2cam224_1e-4
 bash scripts/train_zero1.sh 8 task=robotwin_uncond_3cam_384_1e-4
 ```
 
-**Triple co-denoising (video + point-track + action)** — requires `observation.points.*` videos in the LeRobot dataset (e.g. from [AllTracker](https://github.com/aharley/alltracker) `inference_dataset.py`). Same scripts; switch the task name:
+**Triple co-denoising (video + point-track + action)** — requires `observation.points.*` videos in the LeRobot dataset (e.g. from [AllTracker](https://github.com/aharley/alltracker) `inference_dataset.py`). After AllTracker, register them in `meta/info.json`:
+
+```bash
+python scripts/register_lerobot_point_videos.py \
+  --data-root /path/to/data/libero_mujoco3.3.2
+```
+
+Then train (same scripts as uncond; switch the task name):
 
 ```bash
 # Precompute text embeddings (once)

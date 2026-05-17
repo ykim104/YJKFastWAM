@@ -18,12 +18,28 @@ MAX_GETITEM_ATTEMPT = 5
 def resolve_local_lerobot_dataset(ds_dir: str) -> tuple[str, Path]:
     """Map a local LeRobot dataset directory to (repo_id, root) for vendored lerobot."""
     ds_root = Path(ds_dir).expanduser().resolve()
-    if not (ds_root / "meta").is_dir():
+    if not (ds_root / "meta" / "info.json").is_file():
         raise FileNotFoundError(
-            f"LeRobot dataset not found at {ds_root} (missing meta/). "
+            f"LeRobot dataset not found at {ds_root} (missing meta/info.json). "
             "Check paths.data_root and dataset_dirs in your Hydra config."
         )
     return ds_root.name, ds_root
+
+
+def _validate_track_features(metas, track_image_meta, dataset_dirs) -> None:
+    """Triple co-denoising needs observation.points.* registered as LeRobot video keys."""
+    if not track_image_meta:
+        return
+    for ds_dir, meta in zip(dataset_dirs, metas):
+        for track_meta in track_image_meta:
+            lerobot_key = track_meta.get("lerobot_key") or f"observation.points.{track_meta['key']}"
+            if lerobot_key not in meta.video_keys:
+                raise ValueError(
+                    f"Task libero_triple requires LeRobot video key '{lerobot_key}' at {ds_dir}, "
+                    f"but this dataset only has video_keys={meta.video_keys}. "
+                    "Precompute track videos with AllTracker (see README) and register them in "
+                    "meta/info.json, or train with task=libero_uncond_2cam224_1e-4 instead."
+                )
 
 
 class BaseLerobotDataset(torch.utils.data.Dataset):
@@ -86,12 +102,13 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
             ]
         for meta in self.track_image_meta:
             key = meta["key"]
-            if "lerobot_key" not in meta:
-                meta["lerobot_key"] = f"observation.points.{key}"
+            meta["lerobot_key"] = f"observation.points.{key}"
             delta_timestamps[meta["lerobot_key"]] = [
                 (t * global_sample_stride) / fps for t in range(-past_obs_size, -past_obs_size + obs_size)
             ]
-        
+
+        _validate_track_features(metas, self.track_image_meta, dataset_dirs)
+
         for meta in self.state_meta:
             key = meta["key"]
             meta["lerobot_key"] = f"observation.state.{key}" if key != "default" else "observation.state"
