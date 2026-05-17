@@ -67,16 +67,11 @@ _beaker_install_deps() {
 }
 
 _beaker_ensure_nvcc() {
-  if beaker_setup_cuda 2>/dev/null; then
+  if beaker_setup_cuda; then
     return 0
   fi
-  echo "[beaker] Installing nvidia-cuda-nvcc-cu12 for DeepSpeed..."
-  if command -v uv >/dev/null 2>&1; then
-    uv pip install --python "${PYTHON}" "nvidia-cuda-nvcc-cu12>=12.8.93"
-  else
-    _beaker_ensure_pip
-    "${PYTHON}" -m pip install "nvidia-cuda-nvcc-cu12>=12.8.93"
-  fi
+  beaker_try_apt_nvcc || true
+  beaker_setup_cuda
 }
 
 if ! "${PYTHON}" -c "import accelerate, fastwam, torch" 2>/dev/null; then
@@ -86,20 +81,11 @@ if ! "${PYTHON}" -c "import accelerate, fastwam, torch" 2>/dev/null; then
   _beaker_install_deps
 fi
 
-# DeepSpeed needs nvcc at import time; set CUDA_HOME before importing deepspeed.
-_beaker_ensure_nvcc
-if ! beaker_setup_cuda; then
-  echo "[beaker] ERROR: nvcc required for DeepSpeed ZeRO." >&2
-  "${PYTHON}" -c "
-import sysconfig
-from pathlib import Path
-p = Path(sysconfig.get_paths()['purelib'])
-print('[beaker] site-packages:', p)
-for nvcc in sorted(p.rglob('nvcc'))[:10]:
-    print('  ', nvcc)
-" >&2 || true
+# DeepSpeed calls nvcc -V at import; pip nvidia-cuda-nvcc-cu12 has no nvcc binary.
+_beaker_ensure_nvcc || {
+  echo "[beaker] ERROR: could not configure CUDA_HOME for DeepSpeed." >&2
   exit 1
-fi
+}
 "${PYTHON}" -c "import accelerate, fastwam, torch; print('[beaker] deps OK')"
 if ! "${PYTHON}" -c "import deepspeed; print('[beaker] deepspeed OK:', deepspeed.__version__)"; then
   echo "[beaker] ERROR: deepspeed import failed." >&2
