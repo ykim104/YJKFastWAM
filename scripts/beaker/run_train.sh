@@ -85,7 +85,11 @@ if ! beaker_setup_cuda; then
   echo "[beaker] ERROR: nvcc required for DeepSpeed ZeRO. pip install nvidia-cuda-nvcc-cu12 failed?" >&2
   exit 1
 fi
-"${PYTHON}" -c "import deepspeed; print('[beaker] deepspeed OK:', deepspeed.__version__)"
+if ! "${PYTHON}" -c "import deepspeed; print('[beaker] deepspeed OK:', deepspeed.__version__)"; then
+  echo "[beaker] ERROR: deepspeed import failed (often missing Python.h for Triton JIT)." >&2
+  echo "[beaker] PYTHON_INCLUDE should be set; try re-running with latest launch_train_gantry.sh." >&2
+  exit 1
+fi
 
 if [[ "${PRECOMPUTE_TEXT}" == "1" ]]; then
   echo "[beaker] Precomputing T5 text embeddings for task=${TASK}..."

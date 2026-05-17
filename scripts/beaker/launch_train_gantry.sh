@@ -119,7 +119,7 @@ GANTRY_ARGS=(
   --python-manager uv
   --uv-torch-backend cu128
   --default-python-version 3.10
-  --install "uv pip install nvidia-cuda-nvcc-cu12 && python -c \"import accelerate, deepspeed, torch; import fastwam\""
+  --install " (command -v apt-get >/dev/null && apt-get update -qq && apt-get install -y -qq python3.10-dev build-essential) || true; uv pip install nvidia-cuda-nvcc-cu12; python -c \"import accelerate, torch; import fastwam\""
   --name "fastwam-${TASK}"
   --description "FastWAM ${TASK} (${USER_NAME})"
 )

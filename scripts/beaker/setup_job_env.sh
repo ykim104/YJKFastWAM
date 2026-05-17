@@ -9,7 +9,16 @@ fi
 export PYTHON="${PYTHON:-$(command -v python)}"
 echo "[beaker] PYTHON=${PYTHON} ($("${PYTHON}" --version 2>&1))"
 
+# uv/gantry venv Python headers are not under /usr/include; Triton/DeepSpeed need this for JIT.
+_py_include="$("${PYTHON}" -c "import sysconfig; print(sysconfig.get_path('include'))")"
+export C_INCLUDE_PATH="${_py_include}${C_INCLUDE_PATH:+:${C_INCLUDE_PATH}}"
+export CPLUS_INCLUDE_PATH="${_py_include}${CPLUS_INCLUDE_PATH:+:${CPLUS_INCLUDE_PATH}}"
+export CPATH="${_py_include}${CPATH:+:${CPATH}}"
+echo "[beaker] PYTHON_INCLUDE=${_py_include}"
+
 export DS_SKIP_CUDA_CHECK="${DS_SKIP_CUDA_CHECK:-1}"
+# Training only (ZeRO); avoid pulling inference Triton kernels at import when possible.
+export DS_INFERENCE="${DS_INFERENCE:-0}"
 
 beaker_setup_cuda() {
   local candidate nvcc_path pkg_home cuda_home
