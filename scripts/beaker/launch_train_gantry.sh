@@ -3,7 +3,8 @@
 #
 # Usage:
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4
-#   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_uncond_2cam224_1e-4 --gpus 8 --wandb
+#   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_uncond_2cam224_1e-4 --gpus 8
+#   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4 --no-wandb
 #
 # Requires: pip install beaker-py beaker-gantry  (NOT the PyPI package named "beaker")
 #           gantry config && beaker account whoami
@@ -131,7 +132,10 @@ if [[ "${NUM_NODES}" -gt 1 ]]; then
 fi
 
 if [[ "${WANDB}" == "1" ]]; then
-  GANTRY_ARGS+=(--env-secret "WANDB_API_KEY=${WANDB_SECRET}")
+  GANTRY_ARGS+=(
+    --env-secret "WANDB_API_KEY=${WANDB_SECRET}"
+    --env "WANDB_MODE=online"
+  )
 fi
 
 cd "${REPO_ROOT}"
@@ -145,6 +149,7 @@ if ! GANTRY_CMD="$(resolve_gantry "${REPO_ROOT}")"; then
 fi
 
 echo "[paths] data=${DATA_ROOT} checkpoints=${CHECKPOINT_ROOT} runs=${RUNS_ROOT}"
+echo "[wandb] enabled=$([[ "${WANDB}" == "1" ]] && echo true || echo false)"
 echo ">>> ${GANTRY_CMD} ${GANTRY_ARGS[*]} -- bash scripts/beaker/run_train.sh"
 # shellcheck disable=SC2086
 exec ${GANTRY_CMD} "${GANTRY_ARGS[@]}" -- bash scripts/beaker/run_train.sh

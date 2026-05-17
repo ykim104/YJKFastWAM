@@ -33,6 +33,15 @@ export FASTWAM_RUNS_ROOT="${FASTWAM_RUNS_ROOT:-${WEKA_ROOT}/runs}"
 export DIFFSYNTH_MODEL_BASE_PATH="${DIFFSYNTH_MODEL_BASE_PATH:-${FASTWAM_CHECKPOINTS_ROOT}}"
 export HYDRA_OVERRIDES="${HYDRA_OVERRIDES:-paths=weka paths.weka_user=${USER_NAME:-yejink}}"
 
+# Gantry clones the repo (no CODE_DIR). Enable wandb by default for those jobs.
+if [[ -z "${CODE_DIR:-}" ]] && [[ "${BEAKER_WANDB:-1}" != "0" ]]; then
+  if [[ "${HYDRA_OVERRIDES}" != *"wandb.enabled"* ]]; then
+    HYDRA_OVERRIDES="${HYDRA_OVERRIDES} wandb.enabled=true"
+    export HYDRA_OVERRIDES
+  fi
+  export WANDB_MODE="${WANDB_MODE:-online}"
+fi
+
 echo "[beaker] data=${FASTWAM_DATA_ROOT} checkpoints=${FASTWAM_CHECKPOINTS_ROOT} runs=${FASTWAM_RUNS_ROOT}"
 
 beaker_check_weka() {
