@@ -62,6 +62,7 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         self.is_training_set = is_training_set
 
         self.image_meta = shape_meta["images"]
+        self.track_image_meta = shape_meta.get("track_images") or []
         self.state_meta = shape_meta["state"]
         self.action_meta = shape_meta["action"]
 
@@ -69,6 +70,13 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         for meta in self.image_meta:
             key = meta["key"]
             meta["lerobot_key"] = f"observation.images.{key}" if key != "default" else "observation.images"
+            delta_timestamps[meta["lerobot_key"]] = [
+                (t * global_sample_stride) / fps for t in range(-past_obs_size, -past_obs_size + obs_size)
+            ]
+        for meta in self.track_image_meta:
+            key = meta["key"]
+            if "lerobot_key" not in meta:
+                meta["lerobot_key"] = f"observation.points.{key}"
             delta_timestamps[meta["lerobot_key"]] = [
                 (t * global_sample_stride) / fps for t in range(-past_obs_size, -past_obs_size + obs_size)
             ]
@@ -221,6 +229,11 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
 
         for meta in self.image_meta:
             sample["images"][meta["key"]] = self._get_image(meta, lerobot_sample)
+
+        if self.track_image_meta:
+            sample["track_images"] = {}
+            for meta in self.track_image_meta:
+                sample["track_images"][meta["key"]] = self._get_image(meta, lerobot_sample)
 
         sample["action_is_pad"] = lerobot_sample[f"{self.action_meta[0]['lerobot_key']}_is_pad"]
         sample["state_is_pad"] = lerobot_sample[f"{self.state_meta[0]['lerobot_key']}_is_pad"]

@@ -2,6 +2,7 @@
 
 defaults:
   - _self_
+  - paths: local
   - data: null
   - model: null
   - task: null

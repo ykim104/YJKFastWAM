@@ -139,62 +139,18 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         
         image_is_pad = sample["image_is_pad"]
 
-        video = sample["pixel_values"]  # [T, C, H, W] or [num_cameras, T, C, H, W]
-        num_cameras = 1
-        if video.ndim == 5:
-            video = video[:, self.video_sample_indices, :, :, :] # [num_cameras, T_video, C, H, W]
-            num_cameras, T_video, C, H, W = video.shape
-        else:
-            assert video.ndim == 4, f"Expected video to have shape [T, C, H, W], but got {video.shape}"
-            video = video[self.video_sample_indices, :, :, :] # [T_video, C, H, W]
-            T_video, C, H, W = video.shape
+        video = self._prepare_video_tensor(sample["pixel_values"])
+        track_video = None
+        if "track_pixel_values" in sample:
+            track_video = self._prepare_video_tensor(sample["track_pixel_values"])
+            if track_video.shape != video.shape:
+                raise ValueError(
+                    f"Track video shape {tuple(track_video.shape)} must match RGB video shape {tuple(video.shape)}"
+                )
         image_is_pad = image_is_pad[self.video_sample_indices]
-
-        video = video.view(num_cameras, T_video, C, H, W)  # [num_cameras, T_video, C, H, W]
-        if self.concat_multi_camera == "robotwin":
-            if num_cameras != 3:
-                raise ValueError(
-                    f"`concat_multi_camera='robotwin'` requires exactly 3 cameras, got {num_cameras}"
-                )
-            cam_top = transforms_F.resize(
-                video[0],
-                size=[256, 320],
-                interpolation=transforms_F.InterpolationMode.BILINEAR,
-                antialias=True,
-            )  # [T_video, C, 256, 320]
-            cam_left = transforms_F.resize(
-                video[1],
-                size=[128, 160],
-                interpolation=transforms_F.InterpolationMode.BILINEAR,
-                antialias=True,
-            )  # [T_video, C, 128, 160]
-            cam_right = transforms_F.resize(
-                video[2],
-                size=[128, 160],
-                interpolation=transforms_F.InterpolationMode.BILINEAR,
-                antialias=True,
-            )  # [T_video, C, 128, 160]
-            bottom = torch.cat([cam_left, cam_right], dim=-1)  # [T_video, C, 128, 320]
-            video = torch.cat([cam_top, bottom], dim=-2)  # [T_video, C, 384, 320]
-        elif num_cameras > 1:
-            if self.concat_multi_camera == "horizontal":
-                video = torch.cat([video[i] for i in range(num_cameras)], dim=-1)  # [T_video, C, H, num_cameras*W]
-            elif self.concat_multi_camera == "vertical":
-                video = torch.cat([video[i] for i in range(num_cameras)], dim=-2)  # [T_video, C, num_cameras*H, W]
-            else:
-                raise ValueError(
-                    f"Invalid concat_multi_camera: {self.concat_multi_camera}. "
-                    "Expected one of: horizontal, vertical, robotwin."
-                )
-        else:
-            video = video.squeeze(0)  # [T_video, C, H, W]
-
-        # final resize and normalization
-        video = self.resize_transform(video)
-        video = self.crop_transform(video)
-        video = self.normalize_transform(video)  # [T_video, C, H, W]
-
         video = video.permute(1, 0, 2, 3) # [C, T_video, H, W], range [-1, 1]
+        if track_video is not None:
+            track_video = track_video.permute(1, 0, 2, 3)
 
         # Proxy (from lerobot): 
         #   action: [num_frames-1, action_dim] # start from t0, except the last frame
@@ -231,7 +187,65 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             "action_is_pad": sample["action_is_pad"],
             "proprio_is_pad": sample["proprio_is_pad"],
         }
+        if  is not None:
+            data["track_vidtrack_videoeo"] = track_video
         return data
+
+    def _prepare_video_tensor(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        """Subsample frames, concat cameras, resize/crop/normalize to match training video."""
+        video = pixel_values
+        num_cameras = 1
+        if video.ndim == 5:
+            video = video[:, self.video_sample_indices, :, :, :]
+            num_cameras, T_video, C, H, W = video.shape
+        else:
+            assert video.ndim == 4, f"Expected video to have shape [T, C, H, W], but got {video.shape}"
+            video = video[self.video_sample_indices, :, :, :]
+            T_video, C, H, W = video.shape
+
+        video = video.view(num_cameras, T_video, C, H, W)
+        if self.concat_multi_camera == "robotwin":
+            if num_cameras != 3:
+                raise ValueError(
+                    f"`concat_multi_camera='robotwin'` requires exactly 3 cameras, got {num_cameras}"
+                )
+            cam_top = transforms_F.resize(
+                video[0],
+                size=[256, 320],
+                interpolation=transforms_F.InterpolationMode.BILINEAR,
+                antialias=True,
+            )
+            cam_left = transforms_F.resize(
+                video[1],
+                size=[128, 160],
+                interpolation=transforms_F.InterpolationMode.BILINEAR,
+                antialias=True,
+            )
+            cam_right = transforms_F.resize(
+                video[2],
+                size=[128, 160],
+                interpolation=transforms_F.InterpolationMode.BILINEAR,
+                antialias=True,
+            )
+            bottom = torch.cat([cam_left, cam_right], dim=-1)
+            video = torch.cat([cam_top, bottom], dim=-2)
+        elif num_cameras > 1:
+            if self.concat_multi_camera == "horizontal":
+                video = torch.cat([video[i] for i in range(num_cameras)], dim=-1)
+            elif self.concat_multi_camera == "vertical":
+                video = torch.cat([video[i] for i in range(num_cameras)], dim=-2)
+            else:
+                raise ValueError(
+                    f"Invalid concat_multi_camera: {self.concat_multi_camera}. "
+                    "Expected one of: horizontal, vertical, robotwin."
+                )
+        else:
+            video = video.squeeze(0)
+
+        video = self.resize_transform(video)
+        video = self.crop_transform(video)
+        video = self.normalize_transform(video)
+        return video
 
     def _get_cached_text_context(self, prompt: str):
         if self.text_embedding_cache_dir is None:

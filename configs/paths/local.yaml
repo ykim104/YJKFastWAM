@@ -1,0 +1,5 @@
+# @package paths
+# Local dev defaults (repo-relative).
+data_root: ./data
+checkpoints_root: ./checkpoints
+runs_root: ./runs

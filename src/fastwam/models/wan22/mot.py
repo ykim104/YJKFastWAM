@@ -22,6 +22,19 @@ class MoT(nn.Module):
             raise ValueError("`mixtures` cannot be empty.")
         if "video" not in mixtures or "action" not in mixtures:
             raise ValueError("`mixtures` must include both 'video' and 'action' experts.")
+        if "track" in mixtures and "video" in mixtures:
+            track_expert = mixtures["track"]
+            video_expert = mixtures["video"]
+            if track_expert.num_heads != video_expert.num_heads:
+                raise ValueError("Track expert `num_heads` must match video expert for MoT mixed attention.")
+            if track_expert.attn_head_dim != video_expert.attn_head_dim:
+                raise ValueError("Track expert `attn_head_dim` must match video expert for MoT mixed attention.")
+            if len(track_expert.blocks) != len(video_expert.blocks):
+                raise ValueError("Track expert `num_layers` must match video expert.")
+            if track_expert.blocks is not video_expert.blocks:
+                raise ValueError(
+                    "Track expert must share DiT blocks with the video expert (lifted track branch)."
+                )
 
         self.mixtures = nn.ModuleDict(mixtures)
         self.expert_order = list(self.mixtures.keys())

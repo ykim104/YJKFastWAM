@@ -107,10 +107,16 @@ fi
 
 echo "[launch] nproc_per_node=${NPROC_PER_NODE} num_machines=${NUM_MACHINES} machine_rank=${MACHINE_RANK} run_id=${RUN_ID}"
 
+if [[ -n "${FASTWAM_RUNS_ROOT:-}" ]]; then
+  OUTPUT_DIR="${FASTWAM_RUNS_ROOT}/${TASK_BASENAME}/${RUN_ID}"
+else
+  OUTPUT_DIR="./runs/${TASK_BASENAME}/${RUN_ID}"
+fi
+
 accelerate launch \
   --config_file scripts/accelerate_configs/accelerate_zero1_ds.yaml \
   --num_processes "${NPROC_PER_NODE}" \
   scripts/train.py \
-  "output_dir=./runs/${TASK_BASENAME}/${RUN_ID}" \
+  "output_dir=${OUTPUT_DIR}" \
   "wandb.name=${TASK_BASENAME}" \
   "${EXTRA_ARGS[@]}"

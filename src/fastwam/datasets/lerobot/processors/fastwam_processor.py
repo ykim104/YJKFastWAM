@@ -212,22 +212,22 @@ class FastWAMProcessor(BaseProcessor):
         sample["image_is_pad"] = data["image_is_pad"]
 
         # 2. image
-        processed_images = []
-        for meta in self.shape_meta["images"]:
-            key, shape = meta["key"], meta["shape"]
-            image = data["images"][key]  # [num_obs_steps, C, H, W]
+        transforms = self.train_transforms if self.is_train else self.val_transforms
+
+        def _apply_image_transforms(image: torch.Tensor, key: str) -> torch.Tensor:
             assert image.ndim == 4, f"Expected 4 dimensions (num_obs_steps, C, H, W), got shape {image.shape}"
-            
-            # Apply transforms efficiently on the merged batch
-            transforms = self.train_transforms if self.is_train else self.val_transforms
             current_transforms = transforms[key] if isinstance(transforms, dict) else transforms
             for trans in current_transforms:
                 image = trans(image)
-            
+            return image
+
+        processed_images = []
+        for meta in self.shape_meta["images"]:
+            key, shape = meta["key"], meta["shape"]
+            image = _apply_image_transforms(data["images"][key], key)
             meta_shape = [self.num_obs_steps] + shape
             assert image.shape == meta_shape, \
                 f"Expected shape {meta_shape}, got {image.shape} after transforms for key {key}"
-
             processed_images.append(image)
         pixel_values = torch.stack(processed_images, dim=0) # [num_input_cameras, T, C, H, W]
         
@@ -241,6 +241,33 @@ class FastWAMProcessor(BaseProcessor):
             sample["pixel_values"] = pixel_values[:self.num_output_cameras]
         else:
             sample["pixel_values"] = pixel_values
+
+        track_image_meta = self.shape_meta.get("track_images") or []
+        if track_image_meta:
+            if "track_images" not in data:
+                raise ValueError("`track_images` is required in sample when `shape_meta.track_images` is set.")
+            processed_track_images = []
+            for meta in track_image_meta:
+                key, shape = meta["key"], meta["shape"]
+                track_image = _apply_image_transforms(data["track_images"][key], key)
+                meta_shape = [self.num_obs_steps] + shape
+                assert track_image.shape == meta_shape, (
+                    f"Expected track shape {meta_shape}, got {track_image.shape} after transforms for key {key}"
+                )
+                processed_track_images.append(track_image)
+            track_pixel_values = torch.stack(processed_track_images, dim=0)
+            if self.num_output_cameras > track_pixel_values.shape[0]:
+                out = torch.zeros(
+                    (self.num_output_cameras,) + track_pixel_values.shape[1:],
+                    device=track_pixel_values.device,
+                    dtype=track_pixel_values.dtype,
+                )
+                out[0:track_pixel_values.shape[0]] = track_pixel_values
+                sample["track_pixel_values"] = out
+            elif self.num_output_cameras < track_pixel_values.shape[0]:
+                sample["track_pixel_values"] = track_pixel_values[: self.num_output_cameras]
+            else:
+                sample["track_pixel_values"] = track_pixel_values
 
         # Copy action before transform for open-loop evaluation, 
         # disabled for training dataset as it may cause collating key problem.

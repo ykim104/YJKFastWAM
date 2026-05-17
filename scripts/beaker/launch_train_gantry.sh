@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Launch FastWAM training via Beaker Gantry (alternative to raw Beaker YAML).
+#
+# Usage:
+#   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4
+#   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_uncond_2cam224_1e-4 --gpus 8 --wandb
+#
+# Requires: pip install beaker-gantry && gantry config (see TAMP/CLAUDE.md)
+# Gantry installs via --install (torch cu128 index + pip install -e . from pyproject.toml).
+# Code on Weka is used via CODE_DIR; gantry also clones the repo for the install step.
+# Data, checkpoints, and runs use /weka/oe-training/<user>/{data,checkpoints,runs} (Hydra paths=weka).
+
+set -euo pipefail
+
+USER_NAME=""
+TASK=""
+NUM_GPUS=8
+NUM_NODES=1
+WORKSPACE="ai2/yejink-workspace"
+BUDGET="ai2/robots"
+PRIORITY="normal"
+WEKA_VOLUME="oe-training"
+CLUSTER="ai2/jupiter"
+PRECOMPUTE_TEXT=0
+WANDB=0
+EXTRA=()
+
+usage() {
+  sed -n '2,12p' "$0"
+  exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --user-name) USER_NAME="$2"; shift 2 ;;
+    --task) TASK="$2"; shift 2 ;;
+    --gpus) NUM_GPUS="$2"; shift 2 ;;
+    --num-nodes) NUM_NODES="$2"; shift 2 ;;
+    --workspace) WORKSPACE="$2"; shift 2 ;;
+    --budget) BUDGET="$2"; shift 2 ;;
+    --priority) PRIORITY="$2"; shift 2 ;;
+    --weka-volume) WEKA_VOLUME="$2"; shift 2 ;;
+    --cluster) CLUSTER="$2"; shift 2 ;;
+    --precompute-text) PRECOMPUTE_TEXT=1; shift ;;
+    --wandb) WANDB=1; shift ;;
+    -h|--help) usage ;;
+    *) EXTRA+=("$1"); shift ;;
+  esac
+done
+
+[[ -n "${USER_NAME}" && -n "${TASK}" ]] || usage
+
+resolve_gantry() {
+  if [[ -n "${GANTRY:-}" && -x "${GANTRY}" ]]; then
+    echo "${GANTRY}"
+    return 0
+  fi
+  if command -v gantry >/dev/null 2>&1; then
+    command -v gantry
+    return 0
+  fi
+  local repo_root="$1"
+  if [[ -x "${repo_root}/.venv/bin/gantry" ]]; then
+    echo "${repo_root}/.venv/bin/gantry"
+    return 0
+  fi
+  if python -m gantry --help >/dev/null 2>&1; then
+    echo "python -m gantry"
+    return 0
+  fi
+  return 1
+}
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+CODE_DIR="/weka/${WEKA_VOLUME}/${USER_NAME}/YJKFastWam"
+WEKA_ROOT="/weka/${WEKA_VOLUME}/${USER_NAME}"
+DATA_ROOT="${WEKA_ROOT}/data"
+CHECKPOINT_ROOT="${WEKA_ROOT}/checkpoints"
+RUNS_ROOT="${WEKA_ROOT}/runs"
+
+HYDRA_OVERRIDES="paths=weka paths.weka_user=${USER_NAME}"
+if [[ "${WANDB}" == "1" ]]; then
+  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} wandb.enabled=true"
+fi
+if [[ ${#EXTRA[@]} -gt 0 ]]; then
+  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} ${EXTRA[*]}"
+fi
+
+GANTRY_ARGS=(
+  run
+  --yes
+  --workspace "${WORKSPACE}"
+  --budget "${BUDGET}"
+  --priority "${PRIORITY}"
+  --gpus "${NUM_GPUS}"
+  --replicas "${NUM_NODES}"
+  --shared-memory 64GiB
+  --memory 200GiB
+  --weka "${WEKA_VOLUME}:/weka/${WEKA_VOLUME}"
+  --cluster "${CLUSTER}"
+  --env "USER_NAME=${USER_NAME}"
+  --env "CODE_DIR=${CODE_DIR}"
+  --env "TASK=${TASK}"
+  --env "NUM_GPUS=${NUM_GPUS}"
+  --env "PRECOMPUTE_TEXT=${PRECOMPUTE_TEXT}"
+  --env "FASTWAM_DATA_ROOT=${DATA_ROOT}"
+  --env "FASTWAM_CHECKPOINTS_ROOT=${CHECKPOINT_ROOT}"
+  --env "FASTWAM_RUNS_ROOT=${RUNS_ROOT}"
+  --env "DIFFSYNTH_MODEL_BASE_PATH=${CHECKPOINT_ROOT}"
+  --env "HYDRA_OVERRIDES=${HYDRA_OVERRIDES}"
+  --env "SKIP_PIP_INSTALL=1"
+  --install "pip install -U pip && pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchcodec==0.5 --extra-index-url https://download.pytorch.org/whl/cu128 && pip install -e ."
+  --default-python-version 3.10
+  --name "fastwam-${TASK}"
+  --description "FastWAM ${TASK} (${USER_NAME})"
+)
+
+if [[ "${NUM_NODES}" -gt 1 ]]; then
+  GANTRY_ARGS+=(--leader-selection --host-networking --propagate-failure --propagate-preemption)
+fi
+
+if [[ "${WANDB}" == "1" ]]; then
+  GANTRY_ARGS+=(--env-secret WANDB_API_KEY)
+fi
+
+cd "${REPO_ROOT}"
+if ! GANTRY_CMD="$(resolve_gantry "${REPO_ROOT}")"; then
+  echo "Error: 'gantry' not found. Install Beaker Gantry in this environment:" >&2
+  echo "  pip install beaker-gantry" >&2
+  echo "  gantry config   # one-time setup (Beaker token, default workspace, etc.)" >&2
+  echo "Or submit without Gantry:" >&2
+  echo "  ./scripts/beaker/launch_train.sh --user-name ${USER_NAME} --task ${TASK}" >&2
+  exit 127
+fi
+
+echo "[paths] data=${DATA_ROOT} checkpoints=${CHECKPOINT_ROOT} runs=${RUNS_ROOT}"
+echo ">>> ${GANTRY_CMD} ${GANTRY_ARGS[*]} -- bash scripts/beaker/run_train.sh"
+# shellcheck disable=SC2086
+exec ${GANTRY_CMD} "${GANTRY_ARGS[@]}" -- bash scripts/beaker/run_train.sh

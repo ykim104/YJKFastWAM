@@ -339,6 +339,7 @@ class WanVideoDiT(torch.nn.Module):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.in_dim = in_dim
+        self.out_dim = out_dim
         self.freq_dim = freq_dim
         self.patch_size = patch_size
         self.num_heads = num_heads
@@ -360,6 +361,7 @@ class WanVideoDiT(torch.nn.Module):
         
         self.action_conditioned = action_conditioned
         self.action_dim = action_dim
+        self.action_group_causal_mask_mode = action_group_causal_mask_mode
         assert has_image_input == False
         assert require_clip_embedding == False
         assert require_vae_embedding == False and fuse_vae_embedding_in_latents == True, "Only support fusing vae embedding in latents"
@@ -392,7 +394,6 @@ class WanVideoDiT(torch.nn.Module):
 
         if self.action_conditioned:
             self.action_embedding = nn.Linear(action_dim, hidden_dim)
-            self.action_group_causal_mask_mode = action_group_causal_mask_mode
         
         self.use_gradient_checkpointing = use_gradient_checkpointing
         if self.use_gradient_checkpointing:

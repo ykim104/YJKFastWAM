@@ -1,0 +1,12 @@
+defaults:
+  - libero_2cam
+
+train:
+  shape_meta:
+    track_images:
+      - key: image
+        raw_shape: [3, 512, 512]
+        shape: [3, 224, 224]
+      - key: wrist_image
+        raw_shape: [3, 512, 512]
+        shape: [3, 224, 224]

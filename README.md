@@ -248,6 +248,8 @@ When running a new task for the first time, set `pretrained_norm_stats` in the c
 After one training run, a `dataset_stats.json` file will be generated in the current run directory (for example, `runs/{task_name}/{run_id}/dataset_stats.json`).
 You can then update `pretrained_norm_stats` to that file path for subsequent runs.
 
+**Two-modality co-denoising (video + action)** — original Fast-WAM setup, unchanged:
+
 ```bash
 # LIBERO
 bash scripts/train_zero1.sh 8 task=libero_uncond_2cam224_1e-4
@@ -255,6 +257,18 @@ bash scripts/train_zero1.sh 8 task=libero_uncond_2cam224_1e-4
 # RoboTwin
 bash scripts/train_zero1.sh 8 task=robotwin_uncond_3cam_384_1e-4
 ```
+
+**Triple co-denoising (video + point-track + action)** — requires `observation.points.*` videos in the LeRobot dataset (e.g. from [AllTracker](https://github.com/aharley/alltracker) `inference_dataset.py`). Same scripts; switch the task name:
+
+```bash
+# Precompute text embeddings (once)
+python scripts/precompute_text_embeds.py task=libero_triple_2cam224_1e-4
+
+# Train (8 GPUs)
+bash scripts/train_zero1.sh 8 task=libero_triple_2cam224_1e-4
+```
+
+At inference, triple-trained checkpoints still use `infer_action` (context frame + action only; no track or future-video generation at test time).
 
 For LIBERO, we train on a single node with 8 GPUs. For RoboTwin, we use 64 GPUs to accelerate training. You can try reducing the GPU count or training epochs.
 
@@ -285,7 +299,8 @@ python experiments/robotwin/run_robotwin_manager.py task={task_name} ckpt={ckpt_
 Common `task_name` examples:
 
 ```text
-libero_uncond_2cam224_1e-4
+libero_uncond_2cam224_1e-4          # two-modality (video + action)
+libero_triple_2cam224_1e-4          # triple co-denoising (video + track + action)
 robotwin_uncond_3cam_384_1e-4
 ```
 

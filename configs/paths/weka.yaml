@@ -1,0 +1,7 @@
+# @package paths
+# Beaker / cluster: persistent storage under /weka/oe-training/<user>/.
+weka_volume: oe-training
+weka_user: yejink
+data_root: /weka/${paths.weka_volume}/${paths.weka_user}/data
+checkpoints_root: /weka/${paths.weka_volume}/${paths.weka_user}/checkpoints
+runs_root: /weka/${paths.weka_volume}/${paths.weka_user}/runs
