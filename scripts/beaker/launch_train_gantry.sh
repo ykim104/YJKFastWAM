@@ -17,12 +17,12 @@ TASK=""
 NUM_GPUS=8
 NUM_NODES=1
 WORKSPACE="ai2/yejink-workspace"
-BUDGET="ai2/robots"
+BUDGET="ai2/robotics"
 PRIORITY="normal"
 WEKA_VOLUME="oe-training"
 CLUSTER="ai2/jupiter"
 PRECOMPUTE_TEXT=0
-WANDB=0
+WANDB=1
 EXTRA=()
 
 usage() {
