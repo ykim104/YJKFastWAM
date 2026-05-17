@@ -116,8 +116,10 @@ GANTRY_ARGS=(
   --env "FASTWAM_RUNS_ROOT=${RUNS_ROOT}"
   --env "DIFFSYNTH_MODEL_BASE_PATH=${CHECKPOINT_ROOT}"
   --env "HYDRA_OVERRIDES=${HYDRA_OVERRIDES}"
-  --install "python -m ensurepip --upgrade && pip install -U pip wheel setuptools && pip install -e . --extra-index-url https://download.pytorch.org/whl/cu128 && pip install nvidia-cuda-nvcc-cu12 && python -c \"import accelerate, deepspeed, torch; import fastwam\""
+  --python-manager uv
+  --uv-torch-backend cu128
   --default-python-version 3.10
+  --install "uv pip install nvidia-cuda-nvcc-cu12 && python -c \"import accelerate, deepspeed, torch; import fastwam\""
   --name "fastwam-${TASK}"
   --description "FastWAM ${TASK} (${USER_NAME})"
 )

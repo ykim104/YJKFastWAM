@@ -46,12 +46,22 @@ _beaker_ensure_pip() {
     return 0
   fi
   echo "[beaker] Bootstrapping pip in gantry venv..."
-  "${PYTHON}" -m ensurepip --upgrade
-  "${PYTHON}" -m pip install -U pip wheel setuptools
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install --python "${PYTHON}" pip setuptools wheel
+    return 0
+  fi
+  local get_pip="/tmp/get-pip.py"
+  curl -fsSL https://bootstrap.pypa.io/get-pip.py -o "${get_pip}"
+  "${PYTHON}" "${get_pip}"
 }
 
 _beaker_install_deps() {
   echo "[beaker] Installing fastwam + training deps into ${PYTHON}..."
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install --python "${PYTHON}" -e . --torch-backend cu128
+    uv pip install --python "${PYTHON}" nvidia-cuda-nvcc-cu12
+    return 0
+  fi
   _beaker_ensure_pip
   "${PYTHON}" -m pip install -U pip
   "${PYTHON}" -m pip install -e . --extra-index-url https://download.pytorch.org/whl/cu128
