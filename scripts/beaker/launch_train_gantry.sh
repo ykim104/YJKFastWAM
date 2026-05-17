@@ -24,7 +24,7 @@ WEKA_VOLUME="oe-training-default"
 CLUSTER="ai2/jupiter"
 PRECOMPUTE_TEXT=0
 WANDB=1
-WANDB_SECRET=""
+WANDB_SECRET="wandb-api-key"
 EXTRA=()
 
 usage() {
@@ -124,9 +124,6 @@ if [[ "${NUM_NODES}" -gt 1 ]]; then
 fi
 
 if [[ "${WANDB}" == "1" ]]; then
-  if [[ -z "${WANDB_SECRET}" ]]; then
-    WANDB_SECRET="$(echo "${USER_NAME}" | tr '[:lower:]' '[:upper:]')_WANDB_API_KEY"
-  fi
   GANTRY_ARGS+=(--env-secret "WANDB_API_KEY=${WANDB_SECRET}")
 fi
 

@@ -82,7 +82,7 @@ def build_yaml(args: argparse.Namespace) -> str:
         env_lines.extend(
             [
                 f"  - name: WANDB_API_KEY",
-                f"    secret: {args.wandb_secret or 'WANDB_API_KEY'}",
+                f"    secret: {args.wandb_secret or 'wandb-api-key'}",
                 f"  - name: WANDB_MODE",
                 f'    value: "online"',
             ]
@@ -204,7 +204,11 @@ def main() -> int:
     parser.add_argument("--omp-threads", default="16", help="OMP_NUM_THREADS")
     parser.add_argument("--precompute-text", action="store_true", help="Run T5 embed precompute before train")
     parser.add_argument("--wandb", action="store_true", help="Enable wandb (wandb.enabled=true)")
-    parser.add_argument("--wandb-secret", default=None, help="Beaker secret name for WANDB_API_KEY")
+    parser.add_argument(
+        "--wandb-secret",
+        default="wandb-api-key",
+        help="Beaker secret name (env var in job is still WANDB_API_KEY)",
+    )
     parser.add_argument("--preemptible", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
         "--cluster",
