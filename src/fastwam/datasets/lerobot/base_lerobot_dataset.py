@@ -14,6 +14,18 @@ logger = get_logger(__name__)
 
 MAX_GETITEM_ATTEMPT = 5
 
+
+def resolve_local_lerobot_dataset(ds_dir: str) -> tuple[str, Path]:
+    """Map a local LeRobot dataset directory to (repo_id, root) for vendored lerobot."""
+    ds_root = Path(ds_dir).expanduser().resolve()
+    if not (ds_root / "meta").is_dir():
+        raise FileNotFoundError(
+            f"LeRobot dataset not found at {ds_root} (missing meta/). "
+            "Check paths.data_root and dataset_dirs in your Hydra config."
+        )
+    return ds_root.name, ds_root
+
+
 class BaseLerobotDataset(torch.utils.data.Dataset):
     def __init__(
         self,
@@ -47,8 +59,7 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         self.processor = None  # Will be set externally
         metas = []
         for ds_dir in dataset_dirs:
-            ds_root = Path(ds_dir)
-            repo_id = ds_dir
+            repo_id, ds_root = resolve_local_lerobot_dataset(ds_dir)
             meta = LeRobotDatasetMetadata(repo_id=repo_id, root=ds_root)
             metas.append(meta)
 
