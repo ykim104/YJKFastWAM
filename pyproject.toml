@@ -22,6 +22,7 @@ dependencies = [
   "jsonlines==4.0.0",
   "modelscope==1.34.0",
   "numpy==1.26.4",
+  "nvidia-cuda-nvcc-cu12>=12.8.93",
   "omegaconf==2.3.0",
   "packaging==25.0",
   "pandas==2.2.3",

@@ -59,13 +59,24 @@ _beaker_install_deps() {
   echo "[beaker] Installing fastwam + training deps into ${PYTHON}..."
   if command -v uv >/dev/null 2>&1; then
     uv pip install --python "${PYTHON}" -e . --torch-backend cu128
-    uv pip install --python "${PYTHON}" nvidia-cuda-nvcc-cu12
     return 0
   fi
   _beaker_ensure_pip
   "${PYTHON}" -m pip install -U pip
   "${PYTHON}" -m pip install -e . --extra-index-url https://download.pytorch.org/whl/cu128
-  "${PYTHON}" -m pip install nvidia-cuda-nvcc-cu12
+}
+
+_beaker_ensure_nvcc() {
+  if beaker_setup_cuda 2>/dev/null; then
+    return 0
+  fi
+  echo "[beaker] Installing nvidia-cuda-nvcc-cu12 for DeepSpeed..."
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install --python "${PYTHON}" "nvidia-cuda-nvcc-cu12>=12.8.93"
+  else
+    _beaker_ensure_pip
+    "${PYTHON}" -m pip install "nvidia-cuda-nvcc-cu12>=12.8.93"
+  fi
 }
 
 if ! "${PYTHON}" -c "import accelerate, fastwam, torch" 2>/dev/null; then
@@ -76,11 +87,17 @@ if ! "${PYTHON}" -c "import accelerate, fastwam, torch" 2>/dev/null; then
 fi
 
 # DeepSpeed needs nvcc at import time; set CUDA_HOME before importing deepspeed.
-export BEAKER_SETUP_CUDA=1
-# shellcheck source=setup_job_env.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup_job_env.sh"
+_beaker_ensure_nvcc
 if ! beaker_setup_cuda; then
-  echo "[beaker] ERROR: nvcc required for DeepSpeed ZeRO. pip install nvidia-cuda-nvcc-cu12 failed?" >&2
+  echo "[beaker] ERROR: nvcc required for DeepSpeed ZeRO." >&2
+  "${PYTHON}" -c "
+import sysconfig
+from pathlib import Path
+p = Path(sysconfig.get_paths()['purelib'])
+print('[beaker] site-packages:', p)
+for nvcc in sorted(p.rglob('nvcc'))[:10]:
+    print('  ', nvcc)
+" >&2 || true
   exit 1
 fi
 "${PYTHON}" -c "import accelerate, fastwam, torch; print('[beaker] deps OK')"

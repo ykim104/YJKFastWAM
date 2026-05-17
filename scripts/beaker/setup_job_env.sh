@@ -57,6 +57,15 @@ for nvcc in Path(sysconfig.get_paths()['purelib']).rglob('bin/nvcc'):
     return 0
   fi
 
+  local venv_root="${VIRTUAL_ENV:-$(dirname "$(dirname "${PYTHON}")")}"
+  local venv_nvcc="${venv_root}/bin/nvcc"
+  if [[ -x "${venv_nvcc}" ]]; then
+    export CUDA_HOME="$(cd "$(dirname "${venv_nvcc}")/.." && pwd)"
+    export PATH="${CUDA_HOME}/bin:${PATH}"
+    echo "[beaker] CUDA_HOME=${CUDA_HOME} (venv bin/nvcc)"
+    return 0
+  fi
+
   if nvcc_path="$(command -v nvcc 2>/dev/null)"; then
     export CUDA_HOME="$(cd "$(dirname "${nvcc_path}")/.." && pwd)"
     export PATH="${CUDA_HOME}/bin:${PATH}"
@@ -76,8 +85,3 @@ for nvcc in Path(sysconfig.get_paths()['purelib']).rglob('bin/nvcc'):
   echo "[beaker] WARNING: nvcc not found; DeepSpeed import may fail." >&2
   return 1
 }
-
-# Only probe CUDA after deps are installed (BEAKER_SETUP_CUDA=1 from run_train.sh).
-if [[ "${BEAKER_SETUP_CUDA:-0}" == "1" ]]; then
-  beaker_setup_cuda || true
-fi
