@@ -21,6 +21,10 @@ def run_dir_from_weights_file(weights_path: Path) -> Path:
     return weights_dir.parent.parent
 
 
+def _is_state_step_dir(path: Path) -> bool:
+    return path.is_dir() and path.name.startswith("step_") and (path / "trainer_state.json").is_file()
+
+
 def _resolve_latest_state(latest_link: Path) -> Path:
     if not latest_link.exists() and not latest_link.is_symlink():
         raise FileNotFoundError(f"Checkpoint symlink not found: {latest_link}")
@@ -66,18 +70,20 @@ def resolve_resume_path(resume: str | Path, output_dir: str | Path | None = None
         out = str(explicit_output) if explicit_output is not None else str(run_dir)
         return out, str(state_dir)
 
+    # State step dir (must come before generic path/latest handling; old runs may
+    # have a stale "latest" entry inside step_* from a previous symlink layout).
+    if _is_state_step_dir(path):
+        run_dir = run_dir_from_state_dir(path)
+        out = str(explicit_output) if explicit_output is not None else str(run_dir)
+        return out, str(path)
+
     if path.is_dir():
         task_latest = path / "latest"
-        if task_latest.exists() or task_latest.is_symlink():
+        if (task_latest.exists() or task_latest.is_symlink()) and path.parent.name != "state":
             state_dir = _resolve_latest_state(task_latest)
             run_dir = run_dir_from_state_dir(state_dir)
             out = str(explicit_output) if explicit_output is not None else str(run_dir)
             return out, str(state_dir)
-
-    if path.is_dir() and (path / "trainer_state.json").is_file():
-        run_dir = run_dir_from_state_dir(path)
-        out = str(explicit_output) if explicit_output is not None else str(run_dir)
-        return out, str(path)
 
     if path.is_dir():
         parent_latest = path.parent / "latest"
