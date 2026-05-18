@@ -15,7 +15,7 @@ from PIL import Image
 from torch.optim.lr_scheduler import ConstantLR, CosineAnnealingLR, LinearLR, SequentialLR
 from torch.utils.data import DataLoader
 
-from .utils.fs import ensure_dir
+from .utils.fs import ensure_dir, update_latest_symlink
 from .utils.logging_config import get_logger, setup_logging
 from .utils.pytorch_utils import set_global_seed
 from .utils.samplers import ResumableEpochSampler
@@ -676,13 +676,29 @@ class Wan22Trainer:
             json.dump(payload, f, ensure_ascii=True, indent=2)
 
     def _update_latest_symlinks(self, step_tag: str):
-        # Task-level only: {runs_root}/{task}/latest -> {run_id}/checkpoints/state/step_XXXXXX
-        run_id = Path(self.output_dir).name
+        # Task-level: {runs_root}/{task}/latest -> absolute path to state/step_XXXXXX
+        state_step_dir = Path(self.state_dir) / step_tag
+        if not state_step_dir.is_dir():
+            logger.warning("Skipping latest symlink update; missing state dir: %s", state_step_dir)
+            return
+
         task_latest = Path(self.output_dir).parent / "latest"
-        rel_target = Path(run_id) / "checkpoints" / "state" / step_tag
-        if task_latest.is_symlink() or task_latest.exists():
-            task_latest.unlink()
-        task_latest.symlink_to(rel_target, target_is_directory=True)
+        try:
+            update_latest_symlink(task_latest, state_step_dir)
+            logger.info(
+                "Updated latest checkpoint symlink: %s -> %s (step=%d)",
+                task_latest,
+                state_step_dir.resolve(),
+                self.global_step,
+            )
+        except OSError as exc:
+            logger.error(
+                "Failed to update latest symlink %s -> %s: %s",
+                task_latest,
+                state_step_dir,
+                exc,
+            )
+            raise
 
     def save_checkpoint(self):
         step_tag = f"step_{self.global_step:06d}"
@@ -876,10 +892,11 @@ class Wan22Trainer:
                         ckpt_info = self.save_checkpoint()
                         if self.accelerator.is_main_process:
                             logger.info(
-                                "[ckpt] step=%d weights=%s state=%s",
+                                "[ckpt] step=%d weights=%s state=%s latest=%s",
                                 self.global_step,
                                 ckpt_info["weights_path"],
                                 ckpt_info["state_path"],
+                                Path(self.output_dir).parent / "latest",
                             )
 
                     if self.global_step >= self.max_steps:
