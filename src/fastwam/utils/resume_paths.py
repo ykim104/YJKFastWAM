@@ -22,7 +22,15 @@ def run_dir_from_weights_file(weights_path: Path) -> Path:
 
 
 def _is_state_step_dir(path: Path) -> bool:
-    return path.is_dir() and path.name.startswith("step_") and (path / "trainer_state.json").is_file()
+    return (
+        path.is_dir()
+        and path.name.startswith("step_")
+        and path.parent.name == "state"
+        and (
+            (path / "trainer_state.json").is_file()
+            or any(path.iterdir())
+        )
+    )
 
 
 def _resolve_latest_state(latest_link: Path) -> Path:
@@ -31,7 +39,7 @@ def _resolve_latest_state(latest_link: Path) -> Path:
     resolved = latest_link.resolve()
     if not resolved.is_dir():
         raise FileNotFoundError(f"Resolved checkpoint is not a directory: {resolved}")
-    if not (resolved / "trainer_state.json").is_file():
+    if not (resolved / "trainer_state.json").is_file() and not any(resolved.iterdir()):
         raise FileNotFoundError(
             f"Resolved checkpoint missing trainer_state.json (not a full training state): {resolved}"
         )
@@ -55,6 +63,8 @@ def resolve_resume_path(resume: str | Path, output_dir: str | Path | None = None
     path = Path(str(resume)).expanduser()
     if not path.is_absolute():
         path = path.resolve()
+    else:
+        path = path.resolve()
 
     explicit_output = Path(output_dir).expanduser().resolve() if output_dir else None
 
@@ -70,22 +80,21 @@ def resolve_resume_path(resume: str | Path, output_dir: str | Path | None = None
         out = str(explicit_output) if explicit_output is not None else str(run_dir)
         return out, str(state_dir)
 
-    # State step dir (must come before generic path/latest handling; old runs may
-    # have a stale "latest" entry inside step_* from a previous symlink layout).
+    # State step dir: use directly. Never follow a stale "latest" inside step_*.
     if _is_state_step_dir(path):
         run_dir = run_dir_from_state_dir(path)
         out = str(explicit_output) if explicit_output is not None else str(run_dir)
         return out, str(path)
 
-    if path.is_dir():
+    if path.is_dir() and not path.name.startswith("step_"):
         task_latest = path / "latest"
-        if (task_latest.exists() or task_latest.is_symlink()) and path.parent.name != "state":
+        if task_latest.exists() or task_latest.is_symlink():
             state_dir = _resolve_latest_state(task_latest)
             run_dir = run_dir_from_state_dir(state_dir)
             out = str(explicit_output) if explicit_output is not None else str(run_dir)
             return out, str(state_dir)
 
-    if path.is_dir():
+    if path.is_dir() and path.parent.name != "state":
         parent_latest = path.parent / "latest"
         if parent_latest.exists() or parent_latest.is_symlink():
             state_dir = _resolve_latest_state(parent_latest)

@@ -529,9 +529,22 @@ def run_training(cfg: DictConfig):
         is_main_process=torch.distributed.get_rank() == 0 if torch.distributed.is_initialized() else True,
     )
     if cfg.get("resume"):
-        from fastwam.utils.resume_paths import resolve_resume_path
+        from fastwam.utils.resume_paths import (
+            _is_state_step_dir,
+            resolve_resume_path,
+            run_dir_from_state_dir,
+        )
 
-        output_dir, resume_path = resolve_resume_path(cfg.resume, cfg.output_dir)
+        resume_in = Path(str(cfg.resume)).expanduser().resolve()
+        if _is_state_step_dir(resume_in):
+            resume_path = str(resume_in)
+            output_dir = (
+                str(cfg.output_dir)
+                if cfg.get("output_dir")
+                else str(run_dir_from_state_dir(resume_in))
+            )
+        else:
+            output_dir, resume_path = resolve_resume_path(cfg.resume, cfg.output_dir)
         with open_dict(cfg):
             cfg.output_dir = output_dir
             cfg.resume = resume_path
