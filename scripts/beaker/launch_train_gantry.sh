@@ -5,6 +5,10 @@
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_uncond_2cam224_1e-4 --gpus 8
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4 --no-wandb
+#   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4 --fresh
+#   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4 \
+#     --resume /weka/oe-training/yejink/runs/libero_triple_2cam224_1e-4/my_run/checkpoints/state/latest
+# On restart after preemption, re-run the same command; auto-resumes from the latest Weka checkpoint.
 #
 # Gantry flags (--allow-dirty, etc.) are passed to gantry only, never to Hydra/train.py.
 #
@@ -28,6 +32,9 @@ WEKA_MOUNT="oe-training"
 PRECOMPUTE_TEXT=0
 WANDB=1
 WANDB_SECRET="YEJINK_WANDB_API_KEY" #wandb-api-key"
+BEAKER_AUTO_RESUME=1
+FASTWAM_RUN_ID=""
+RESUME_PATH=""
 EXTRA=()
 GANTRY_EXTRA=(--allow-dirty)
 
@@ -56,6 +63,9 @@ while [[ $# -gt 0 ]]; do
     --wandb) WANDB=1; shift ;;
     --no-wandb) WANDB=0; shift ;;
     --wandb-secret) WANDB_SECRET="$2"; shift 2 ;;
+    --fresh) BEAKER_AUTO_RESUME=0; shift ;;
+    --run-id) FASTWAM_RUN_ID="$2"; shift 2 ;;
+    --resume) RESUME_PATH="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) EXTRA+=("$1"); shift ;;
   esac
@@ -94,6 +104,9 @@ HYDRA_OVERRIDES="paths=weka paths.weka_user=${USER_NAME}"
 if [[ "${WANDB}" == "1" ]]; then
   HYDRA_OVERRIDES="${HYDRA_OVERRIDES} wandb.enabled=true"
 fi
+if [[ -n "${RESUME_PATH}" ]]; then
+  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} resume=${RESUME_PATH}"
+fi
 if [[ ${#EXTRA[@]} -gt 0 ]]; then
   HYDRA_OVERRIDES="${HYDRA_OVERRIDES} ${EXTRA[*]}"
 fi
@@ -112,9 +125,9 @@ GANTRY_ARGS=(
   --weka "${WEKA_BUCKET}:/weka/${WEKA_MOUNT}"
   --cluster "ai2/saturn"
   --cluster "ai2/jupiter"
-  --cluster "ai2/neptune"
-  --cluster "ai2/rhea"
-  --cluster "ai2/ceres"
+#  --cluster "ai2/neptune"
+#  --cluster "ai2/rhea"
+#  --cluster "ai2/ceres"
   --env "USER_NAME=${USER_NAME}"
   --env "TASK=${TASK}"
   --env "NUM_GPUS=${NUM_GPUS}"
@@ -125,6 +138,8 @@ GANTRY_ARGS=(
   --env "DIFFSYNTH_MODEL_BASE_PATH=${CHECKPOINT_ROOT}"
   --env "HYDRA_OVERRIDES=${HYDRA_OVERRIDES}"
   --env "BEAKER_LOW_VRAM=${BEAKER_LOW_VRAM:-auto}"
+  --env "BEAKER_AUTO_RESUME=${BEAKER_AUTO_RESUME}"
+  --env "FASTWAM_RUN_ID=${FASTWAM_RUN_ID}"
   --python-manager uv
   --uv-torch-backend cu128
   --default-python-version 3.10
@@ -133,8 +148,9 @@ GANTRY_ARGS=(
   --description "FastWAM ${TASK} (${USER_NAME})"
 )
 
+GANTRY_ARGS+=(--propagate-preemption)
 if [[ "${NUM_NODES}" -gt 1 ]]; then
-  GANTRY_ARGS+=(--leader-selection --host-networking --propagate-failure --propagate-preemption)
+  GANTRY_ARGS+=(--leader-selection --host-networking --propagate-failure)
 fi
 
 if [[ "${WANDB}" == "1" ]]; then
@@ -156,6 +172,7 @@ fi
 
 echo "[paths] data=${DATA_ROOT} checkpoints=${CHECKPOINT_ROOT} runs=${RUNS_ROOT}"
 echo "[wandb] enabled=$([[ "${WANDB}" == "1" ]] && echo true || echo false)"
+echo "[resume] auto=$([[ "${BEAKER_AUTO_RESUME}" == "1" ]] && echo true || echo false) run_id=${FASTWAM_RUN_ID:-<auto>}"
 echo ">>> ${GANTRY_CMD} ${GANTRY_ARGS[*]} -- bash scripts/beaker/run_train.sh"
 # shellcheck disable=SC2086
 exec ${GANTRY_CMD} "${GANTRY_ARGS[@]}" -- bash scripts/beaker/run_train.sh

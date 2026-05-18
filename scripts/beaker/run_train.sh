@@ -24,7 +24,11 @@ else
 fi
 
 # shellcheck source=setup_job_env.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/setup_job_env.sh"
+_BEAKER_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=setup_job_env.sh
+source "${_BEAKER_SCRIPT_DIR}/setup_job_env.sh"
+# shellcheck source=beaker_auto_resume.sh
+source "${_BEAKER_SCRIPT_DIR}/beaker_auto_resume.sh"
 
 WEKA_ROOT="${WEKA_ROOT:-/weka/oe-training/${USER_NAME:-yejink}}"
 export FASTWAM_DATA_ROOT="${FASTWAM_DATA_ROOT:-${WEKA_ROOT}/data}"
@@ -62,12 +66,11 @@ beaker_is_triple_task() {
 
 beaker_apply_memory_overrides() {
   local reason="${1:-}"
-  if [[ "${HYDRA_OVERRIDES}" == *"batch_size=8"* && "${HYDRA_OVERRIDES}" == *"mot_checkpoint_mixed_attn=true"* ]]; then
-    echo "[beaker] memory overrides already in HYDRA_OVERRIDES; skipping (${reason})"
-    return 0
-  fi
-  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} batch_size=8 gradient_accumulation_steps=2 model.mot_checkpoint_mixed_attn=true"
-  echo "[beaker] memory Hydra overrides (${reason}): batch_size=8 grad_accum=2 mot_checkpoint=true"
+  local batch_size="${2:-8}"
+  local grad_accum="${3:-2}"
+  # Append after user CLI overrides — Hydra uses the last value for duplicate keys.
+  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} batch_size=${batch_size} gradient_accumulation_steps=${grad_accum} model.mot_checkpoint_mixed_attn=true"
+  echo "[beaker] memory Hydra overrides (${reason}): batch_size=${batch_size} grad_accum=${grad_accum} mot_checkpoint=true"
 }
 
 beaker_query_gpu_mem_mib() {
@@ -97,14 +100,18 @@ beaker_maybe_memory_overrides() {
         if mem_mib="$(beaker_query_gpu_mem_mib)"; then
           # 75000–90000 MiB ≈ 80GB class (H100-80G, A100-80G); skip 96GB+ where batch 16 may fit.
           if (( mem_mib > 49152 && mem_mib < 90000 )); then
-            beaker_apply_memory_overrides "triple task on ${mem_mib} MiB GPU"
+            beaker_apply_memory_overrides "triple task on ${mem_mib} MiB GPU" 8 2
           fi
         fi
       fi
       return 0
       ;;
     1|true|yes)
-      beaker_apply_memory_overrides "BEAKER_LOW_VRAM forced"
+      if beaker_is_triple_task; then
+        beaker_apply_memory_overrides "BEAKER_LOW_VRAM forced (triple)" 4 4
+      else
+        beaker_apply_memory_overrides "BEAKER_LOW_VRAM forced" 8 2
+      fi
       return 0
       ;;
   esac
@@ -115,11 +122,15 @@ beaker_maybe_memory_overrides() {
     return 0
   fi
 
-  # 49152 MiB ≈ 48GB class (L40); published libero configs assume ~80GB+ for joint/uncond.
+  # 49152 MiB ≈ 48GB class (L40/L40S ~45–48 GiB). Triple needs a smaller batch than two-mod on these GPUs.
   if (( mem_mib <= 49152 )); then
-    beaker_apply_memory_overrides "GPU ${mem_mib} MiB (<=48GB)"
+    if beaker_is_triple_task; then
+      beaker_apply_memory_overrides "triple on ${mem_mib} MiB GPU (<=48GB)" 4 4
+    else
+      beaker_apply_memory_overrides "GPU ${mem_mib} MiB (<=48GB)" 8 2
+    fi
   elif beaker_is_triple_task && (( mem_mib < 90000 )); then
-    beaker_apply_memory_overrides "triple task on ${mem_mib} MiB GPU"
+    beaker_apply_memory_overrides "triple task on ${mem_mib} MiB GPU" 8 2
   else
     echo "[beaker] GPU ${mem_mib} MiB — using task defaults (batch_size from Hydra)"
   fi
@@ -230,6 +241,16 @@ if [[ "${PRECOMPUTE_TEXT}" == "1" ]]; then
     scripts/precompute_text_embeds.py "task=${TASK}"
 fi
 
-echo "[beaker] Starting training: NUM_GPUS=${NUM_GPUS} TASK=${TASK}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
+# Reuse the latest Weka checkpoint for this task (gantry / Beaker preemption restarts).
+beaker_apply_auto_resume "${TASK}" "${FASTWAM_RUNS_ROOT}"
+
+if [[ -n "${FASTWAM_RUN_ID:-}" && -z "${RUN_ID:-}" ]]; then
+  export RUN_ID="${FASTWAM_RUN_ID}"
+  echo "[beaker] Using pinned run id: RUN_ID=${RUN_ID}"
+fi
+
+echo "[beaker] Starting training: NUM_GPUS=${NUM_GPUS} TASK=${TASK} RUN_ID=${RUN_ID:-<new>}"
 # shellcheck disable=SC2086
 bash scripts/train_zero1.sh "${NUM_GPUS}" "task=${TASK}" ${HYDRA_OVERRIDES:-}

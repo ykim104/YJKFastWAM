@@ -266,7 +266,7 @@ class Wan22Trainer:
         resume = self.resume
         if not resume:
             return
-        resume_path = Path(str(resume))
+        resume_path = Path(str(resume)).expanduser().resolve()
         if resume_path.is_dir():
             logger.info("Resuming full training state from directory: %s", resume)
             self.load_training_state(str(resume_path))
@@ -675,6 +675,19 @@ class Wan22Trainer:
         with open(state_file, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=True, indent=2)
 
+    def _update_latest_symlinks(self, step_tag: str):
+        state_latest = Path(self.state_dir) / "latest"
+        if state_latest.is_symlink() or state_latest.exists():
+            state_latest.unlink()
+        state_latest.symlink_to(step_tag, target_is_directory=True)
+
+        run_id = Path(self.output_dir).name
+        task_latest = Path(self.output_dir).parent / "latest"
+        rel_target = Path(run_id) / "checkpoints" / "state" / step_tag
+        if task_latest.is_symlink() or task_latest.exists():
+            task_latest.unlink()
+        task_latest.symlink_to(rel_target, target_is_directory=True)
+
     def save_checkpoint(self):
         step_tag = f"step_{self.global_step:06d}"
 
@@ -689,6 +702,7 @@ class Wan22Trainer:
         self.accelerator.save_state(output_dir=state_path)
         if self.accelerator.is_main_process:
             self._save_trainer_state(state_path)
+            self._update_latest_symlinks(step_tag)
         self.accelerator.wait_for_everyone()
 
         return {"weights_path": ckpt_path, "state_path": state_path}

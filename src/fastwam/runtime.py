@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torch
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 from PIL import Image
 import numpy as np
 from einops import repeat
@@ -528,6 +528,15 @@ def run_training(cfg: DictConfig):
         log_level=logging.INFO,
         is_main_process=torch.distributed.get_rank() == 0 if torch.distributed.is_initialized() else True,
     )
+    if cfg.get("resume"):
+        from fastwam.utils.resume_paths import resolve_resume_path
+
+        output_dir, resume_path = resolve_resume_path(cfg.resume, cfg.output_dir)
+        with open_dict(cfg):
+            cfg.output_dir = output_dir
+            cfg.resume = resume_path
+        logger.info("Resume path resolved: output_dir=%s resume=%s", output_dir, resume_path)
+
     misc.register_work_dir(cfg.output_dir)
     config_payload = OmegaConf.to_container(cfg, resolve=True)
     with open(Path(cfg.output_dir) / "config.yaml", "w") as f:

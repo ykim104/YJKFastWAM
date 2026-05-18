@@ -57,7 +57,9 @@ for ((i = 0; i < ${#EXTRA_ARGS[@]}; i++)); do
 done
 
 if [[ -z "${RUN_ID:-}" ]]; then
-  if (( NUM_MACHINES <= 1 )); then
+  if [[ -n "${FASTWAM_RUN_ID:-}" ]]; then
+    RUN_ID="${FASTWAM_RUN_ID}"
+  elif (( NUM_MACHINES <= 1 )); then
     RUN_ID="$(date +%Y-%m-%d_%H-%M-%S)"
   else
     RUN_ID_SYNC_TIMEOUT="${RUN_ID_SYNC_TIMEOUT:-180}"
@@ -107,10 +109,35 @@ fi
 
 echo "[launch] nproc_per_node=${NPROC_PER_NODE} num_machines=${NUM_MACHINES} machine_rank=${MACHINE_RANK} run_id=${RUN_ID}"
 
-if [[ -n "${FASTWAM_RUNS_ROOT:-}" ]]; then
+OUTPUT_DIR_FROM_HYDRA=""
+for arg in "${EXTRA_ARGS[@]}"; do
+  if [[ "${arg}" == output_dir=* ]]; then
+    OUTPUT_DIR_FROM_HYDRA="${arg#output_dir=}"
+    break
+  fi
+done
+
+if [[ -n "${OUTPUT_DIR_FROM_HYDRA}" ]]; then
+  OUTPUT_DIR="${OUTPUT_DIR_FROM_HYDRA}"
+  if [[ -z "${RUN_ID:-}" ]]; then
+    RUN_ID="$(basename "${OUTPUT_DIR}")"
+  fi
+elif [[ -n "${FASTWAM_RUNS_ROOT:-}" ]]; then
   OUTPUT_DIR="${FASTWAM_RUNS_ROOT}/${TASK_BASENAME}/${RUN_ID}"
 else
   OUTPUT_DIR="./runs/${TASK_BASENAME}/${RUN_ID}"
+fi
+
+HYDRA_LAUNCH_ARGS=()
+has_output_dir=0
+for arg in "${EXTRA_ARGS[@]}"; do
+  if [[ "${arg}" == output_dir=* ]]; then
+    has_output_dir=1
+  fi
+  HYDRA_LAUNCH_ARGS+=("${arg}")
+done
+if (( has_output_dir == 0 )); then
+  HYDRA_LAUNCH_ARGS=("output_dir=${OUTPUT_DIR}" "${HYDRA_LAUNCH_ARGS[@]}")
 fi
 
 PYTHON="${PYTHON:-python}"
@@ -118,6 +145,5 @@ PYTHON="${PYTHON:-python}"
   --config_file scripts/accelerate_configs/accelerate_zero1_ds.yaml \
   --num_processes "${NPROC_PER_NODE}" \
   scripts/train.py \
-  "output_dir=${OUTPUT_DIR}" \
   "wandb.name=${TASK_BASENAME}" \
-  "${EXTRA_ARGS[@]}"
+  "${HYDRA_LAUNCH_ARGS[@]}"
