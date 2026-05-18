@@ -676,11 +676,7 @@ class Wan22Trainer:
             json.dump(payload, f, ensure_ascii=True, indent=2)
 
     def _update_latest_symlinks(self, step_tag: str):
-        state_latest = Path(self.state_dir) / "latest"
-        if state_latest.is_symlink() or state_latest.exists():
-            state_latest.unlink()
-        state_latest.symlink_to(step_tag, target_is_directory=True)
-
+        # Task-level only: {runs_root}/{task}/latest -> {run_id}/checkpoints/state/step_XXXXXX
         run_id = Path(self.output_dir).name
         task_latest = Path(self.output_dir).parent / "latest"
         rel_target = Path(run_id) / "checkpoints" / "state" / step_tag

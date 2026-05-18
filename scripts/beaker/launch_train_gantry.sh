@@ -6,8 +6,8 @@
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_uncond_2cam224_1e-4 --gpus 8
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4 --no-wandb
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4 --fresh
-#   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4 \
-#     --resume /weka/oe-training/yejink/runs/libero_triple_2cam224_1e-4/my_run/checkpoints/state/latest
+#   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_uncond_2cam224_1e-4 \
+#     --resume /weka/oe-training/yejink/runs/libero_uncond_2cam224_1e-4/latest
 # On restart after preemption, re-run the same command; auto-resumes from the latest Weka checkpoint.
 #
 # Gantry flags (--allow-dirty, etc.) are passed to gantry only, never to Hydra/train.py.

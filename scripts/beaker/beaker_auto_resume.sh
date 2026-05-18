@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Resume FastWAM training via `latest` symlinks or an explicit resume= path.
+# Resume FastWAM training via the task-level `latest` symlink or an explicit resume= path.
 #
-# Symlinks (updated on each save in trainer.py):
-#   {run}/checkpoints/state/latest -> step_XXXXXX
-#   {runs_root}/{task}/latest      -> {run_id}/checkpoints/state/step_XXXXXX
+# Symlink (updated on each save in trainer.py):
+#   {runs_root}/{task}/latest -> {run_id}/checkpoints/state/step_XXXXXX
+#   e.g. /weka/oe-training/yejink/runs/libero_uncond_2cam224_1e-4/latest
 #
 # Usage (sourced from run_train.sh):
 #   beaker_apply_auto_resume TASK_NAME RUNS_ROOT
@@ -113,19 +113,11 @@ beaker_apply_auto_resume() {
     return 0
   fi
 
-  local state_dir=""
-  local pinned_run_id="${RUN_ID:-${FASTWAM_RUN_ID:-}}"
-
-  if [[ -n "${pinned_run_id}" ]]; then
-    state_dir="$(beaker_resolve_latest_state "${task_runs}/${pinned_run_id}/checkpoints/state/latest" || true)"
-  fi
+  local state_dir
+  state_dir="$(beaker_resolve_latest_state "${task_runs}/latest" || true)"
 
   if [[ -z "${state_dir}" ]]; then
-    state_dir="$(beaker_resolve_latest_state "${task_runs}/latest" || true)"
-  fi
-
-  if [[ -z "${state_dir}" ]]; then
-    echo "[beaker] no latest checkpoint symlink under ${task_runs}; starting fresh"
+    echo "[beaker] no ${task_runs}/latest symlink; starting fresh"
     return 0
   fi
 
@@ -134,5 +126,5 @@ beaker_apply_auto_resume() {
   HYDRA_OVERRIDES="${HYDRA_OVERRIDES} resume=${state_dir} output_dir=${output_dir}"
   export HYDRA_OVERRIDES
 
-  echo "[beaker] auto-resume: run_id=${RUN_ID} output_dir=${output_dir} state=${state_dir} (via latest symlink)"
+  echo "[beaker] auto-resume: run_id=${RUN_ID} latest=${task_runs}/latest state=${state_dir}"
 }

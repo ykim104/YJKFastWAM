@@ -38,9 +38,10 @@ def resolve_resume_path(resume: str | Path, output_dir: str | Path | None = None
     """Map a user-provided resume path to (output_dir, resume_path_for_trainer).
 
     Accepts:
+      - task directory: .../runs/{task}  (uses .../runs/{task}/latest)
+      - task latest:    .../runs/{task}/latest
       - full state dir: .../checkpoints/state/step_XXXXXX
-      - latest symlink: .../checkpoints/state/latest or .../{task}/latest
-      - run directory:  .../{run_id}  (uses checkpoints/state/latest)
+      - run directory:  .../{run_id}  (uses parent .../runs/{task}/latest)
       - weights only:   .../checkpoints/weights/step_XXXXXX.pt
 
     When ``output_dir`` is omitted or does not contain the checkpoint, the run
@@ -65,30 +66,29 @@ def resolve_resume_path(resume: str | Path, output_dir: str | Path | None = None
         out = str(explicit_output) if explicit_output is not None else str(run_dir)
         return out, str(state_dir)
 
+    if path.is_dir():
+        task_latest = path / "latest"
+        if task_latest.exists() or task_latest.is_symlink():
+            state_dir = _resolve_latest_state(task_latest)
+            run_dir = run_dir_from_state_dir(state_dir)
+            out = str(explicit_output) if explicit_output is not None else str(run_dir)
+            return out, str(state_dir)
+
     if path.is_dir() and (path / "trainer_state.json").is_file():
         run_dir = run_dir_from_state_dir(path)
         out = str(explicit_output) if explicit_output is not None else str(run_dir)
         return out, str(path)
 
     if path.is_dir():
-        state_latest = path / "checkpoints" / "state" / "latest"
-        if state_latest.exists() or state_latest.is_symlink():
-            state_dir = _resolve_latest_state(state_latest)
+        parent_latest = path.parent / "latest"
+        if parent_latest.exists() or parent_latest.is_symlink():
+            state_dir = _resolve_latest_state(parent_latest)
             run_dir = run_dir_from_state_dir(state_dir)
             out = str(explicit_output) if explicit_output is not None else str(run_dir)
             return out, str(state_dir)
 
-        state_dir = path / "checkpoints" / "state"
-        if state_dir.is_dir():
-            nested_latest = state_dir / "latest"
-            if nested_latest.exists() or nested_latest.is_symlink():
-                resolved = _resolve_latest_state(nested_latest)
-                run_dir = run_dir_from_state_dir(resolved)
-                out = str(explicit_output) if explicit_output is not None else str(run_dir)
-                return out, str(resolved)
-
     raise FileNotFoundError(
         f"Could not resolve resume path to a checkpoint: {resume}. "
-        "Expected a state dir, state/latest symlink, run dir with checkpoints/state/latest, "
-        "or checkpoints/weights/*.pt file."
+        "Expected a task dir with latest/, task/latest symlink, state step dir, "
+        "run dir under a task with latest/, or checkpoints/weights/*.pt file."
     )
