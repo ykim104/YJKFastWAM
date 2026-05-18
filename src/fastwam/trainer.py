@@ -436,15 +436,12 @@ class Wan22Trainer:
         input_image = video0[:, 0].unsqueeze(0)
         _, num_frames, _, _ = video0.shape
 
-        # 2. inference and video saving
+        # 2. inference (triple: action-only deploy path; joint models: video+action rollout)
+        uses_track_co_denoising = hasattr(model, "track_expert")
         infer_kwargs = {
             "input_image": input_image,
-            "num_frames": num_frames,
-            "action": action,
-            "action_horizon": sample['action_horizon'],
             "proprio": proprio,
             "text_cfg_scale": 1.0,
-            "action_cfg_scale": 1.0,
             "num_inference_steps": self.eval_num_inference_steps,
             "seed": 42,
             "tiled": False,
@@ -456,24 +453,42 @@ class Wan22Trainer:
         else:
             infer_kwargs["prompt"] = prompt
 
-        pred = model.infer(
-            **infer_kwargs,
-        )
-        
-        pred_video = pred["video"]
-        pred_action = pred.get("action", None)
+        pred_video = None
+        pred_action = None
+        if uses_track_co_denoising:
+            if sample["action_horizon"] is None:
+                raise ValueError("Eval sample must provide `action_horizon` for triple-model `infer_action`.")
+            pred = model.infer_action(
+                action_horizon=int(sample["action_horizon"]),
+                **infer_kwargs,
+            )
+            pred_action = pred.get("action", None)
+        else:
+            pred = model.infer(
+                num_frames=num_frames,
+                action=action,
+                action_horizon=sample["action_horizon"],
+                action_cfg_scale=1.0,
+                **infer_kwargs,
+            )
+            pred_video = pred["video"]
+            pred_action = pred.get("action", None)
 
-        # 3. inference metrics against GT video
-        pred_video_tensor = pil_frames_to_video_tensor(pred_video)
         gt_video_tensor = ((video0.detach().float().cpu().clamp(-1.0, 1.0) + 1.0) * 0.5).contiguous()
 
-        assert pred_video_tensor.shape == gt_video_tensor.shape, (
-            "Eval infer prediction/GT shape mismatch: "
-            f"pred={tuple(pred_video_tensor.shape)} vs gt={tuple(gt_video_tensor.shape)}"
-        )
-
-        psnr_rollout_vs_gt = video_psnr(pred=pred_video_tensor, target=gt_video_tensor)
-        ssim_rollout_vs_gt = video_ssim(pred=pred_video_tensor, target=gt_video_tensor)
+        # 3. video rollout metrics (skipped for triple — no joint future-video inference at eval)
+        if pred_video is not None:
+            pred_video_tensor = pil_frames_to_video_tensor(pred_video)
+            assert pred_video_tensor.shape == gt_video_tensor.shape, (
+                "Eval infer prediction/GT shape mismatch: "
+                f"pred={tuple(pred_video_tensor.shape)} vs gt={tuple(gt_video_tensor.shape)}"
+            )
+            psnr_rollout_vs_gt = video_psnr(pred=pred_video_tensor, target=gt_video_tensor)
+            ssim_rollout_vs_gt = video_ssim(pred=pred_video_tensor, target=gt_video_tensor)
+        else:
+            pred_video_tensor = None
+            psnr_rollout_vs_gt = 0.0
+            ssim_rollout_vs_gt = 0.0
 
         action_l1 = None
         action_l2 = None
@@ -544,13 +559,20 @@ class Wan22Trainer:
         psnr_decode_vs_gt = video_psnr(pred=vae_video_tensor, target=gt_video_tensor)
         ssim_decode_vs_gt = video_ssim(pred=vae_video_tensor, target=gt_video_tensor)
 
-        psnr_rollout_vs_decode = video_psnr(pred=pred_video_tensor, target=vae_video_tensor)
-        ssim_rollout_vs_decode = video_ssim(pred=pred_video_tensor, target=vae_video_tensor)
-
-        stitched_video_tensor = torch.cat(
-            [pred_video_tensor, vae_video_tensor, gt_video_tensor],
-            dim=2,
-        ).contiguous()
+        if pred_video_tensor is not None:
+            psnr_rollout_vs_decode = video_psnr(pred=pred_video_tensor, target=vae_video_tensor)
+            ssim_rollout_vs_decode = video_ssim(pred=pred_video_tensor, target=vae_video_tensor)
+            stitched_video_tensor = torch.cat(
+                [pred_video_tensor, vae_video_tensor, gt_video_tensor],
+                dim=2,
+            ).contiguous()
+        else:
+            psnr_rollout_vs_decode = 0.0
+            ssim_rollout_vs_decode = 0.0
+            stitched_video_tensor = torch.cat(
+                [vae_video_tensor, gt_video_tensor],
+                dim=2,
+            ).contiguous()
         stitched_frames = []
         for t in range(stitched_video_tensor.shape[1]):
             frame = (stitched_video_tensor[:, t].permute(1, 2, 0).clamp(0.0, 1.0).numpy() * 255.0).astype(np.uint8)
