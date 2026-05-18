@@ -436,7 +436,7 @@ class Wan22Trainer:
         input_image = video0[:, 0].unsqueeze(0)
         _, num_frames, _, _ = video0.shape
 
-        # 2. inference (triple: action-only deploy path; joint models: video+action rollout)
+        # 2. joint rollout inference (triple: RGB + track + action; two-mod: RGB + action)
         uses_track_co_denoising = hasattr(model, "track_expert")
         infer_kwargs = {
             "input_image": input_image,
@@ -454,14 +454,25 @@ class Wan22Trainer:
             infer_kwargs["prompt"] = prompt
 
         pred_video = None
+        pred_track = None
         pred_action = None
         if uses_track_co_denoising:
             if sample["action_horizon"] is None:
-                raise ValueError("Eval sample must provide `action_horizon` for triple-model `infer_action`.")
-            pred = model.infer_action(
+                raise ValueError("Eval sample must provide `action_horizon` for triple-model rollout.")
+            if "track_video" not in sample:
+                raise ValueError("Eval sample must contain `track_video` for triple rollout metrics.")
+            track0 = sample["track_video"][0]
+            input_track_image = track0[:, 0].unsqueeze(0)
+            pred = model.infer_joint(
+                input_track_image=input_track_image,
+                num_video_frames=num_frames,
                 action_horizon=int(sample["action_horizon"]),
+                action=action,
+                test_action_with_infer_action=False,
                 **infer_kwargs,
             )
+            pred_video = pred["video"]
+            pred_track = pred.get("track")
             pred_action = pred.get("action", None)
         else:
             pred = model.infer(
@@ -476,7 +487,7 @@ class Wan22Trainer:
 
         gt_video_tensor = ((video0.detach().float().cpu().clamp(-1.0, 1.0) + 1.0) * 0.5).contiguous()
 
-        # 3. video rollout metrics (skipped for triple — no joint future-video inference at eval)
+        # 3. RGB video rollout metrics
         if pred_video is not None:
             pred_video_tensor = pil_frames_to_video_tensor(pred_video)
             assert pred_video_tensor.shape == gt_video_tensor.shape, (
@@ -489,6 +500,21 @@ class Wan22Trainer:
             pred_video_tensor = None
             psnr_rollout_vs_gt = 0.0
             ssim_rollout_vs_gt = 0.0
+
+        # 3b. point-track video rollout metrics (triple only)
+        psnr_track_rollout_vs_gt = None
+        ssim_track_rollout_vs_gt = None
+        pred_track_tensor = None
+        if pred_track is not None:
+            track0 = sample["track_video"][0]
+            gt_track_tensor = ((track0.detach().float().cpu().clamp(-1.0, 1.0) + 1.0) * 0.5).contiguous()
+            pred_track_tensor = pil_frames_to_video_tensor(pred_track)
+            assert pred_track_tensor.shape == gt_track_tensor.shape, (
+                "Eval track prediction/GT shape mismatch: "
+                f"pred={tuple(pred_track_tensor.shape)} vs gt={tuple(gt_track_tensor.shape)}"
+            )
+            psnr_track_rollout_vs_gt = video_psnr(pred=pred_track_tensor, target=gt_track_tensor)
+            ssim_track_rollout_vs_gt = video_ssim(pred=pred_track_tensor, target=gt_track_tensor)
 
         action_l1 = None
         action_l2 = None
@@ -562,10 +588,10 @@ class Wan22Trainer:
         if pred_video_tensor is not None:
             psnr_rollout_vs_decode = video_psnr(pred=pred_video_tensor, target=vae_video_tensor)
             ssim_rollout_vs_decode = video_ssim(pred=pred_video_tensor, target=vae_video_tensor)
-            stitched_video_tensor = torch.cat(
-                [pred_video_tensor, vae_video_tensor, gt_video_tensor],
-                dim=2,
-            ).contiguous()
+            stitch_rows = [pred_video_tensor, vae_video_tensor, gt_video_tensor]
+            if pred_track_tensor is not None:
+                stitch_rows = [pred_video_tensor, pred_track_tensor, vae_video_tensor, gt_video_tensor]
+            stitched_video_tensor = torch.cat(stitch_rows, dim=2).contiguous()
         else:
             psnr_rollout_vs_decode = 0.0
             ssim_rollout_vs_decode = 0.0
@@ -593,6 +619,8 @@ class Wan22Trainer:
                 float(ssim_rollout_vs_decode),
                 float(psnr_decode_vs_gt),
                 float(ssim_decode_vs_gt),
+                float(psnr_track_rollout_vs_gt) if psnr_track_rollout_vs_gt is not None else -1.0,
+                float(ssim_track_rollout_vs_gt) if ssim_track_rollout_vs_gt is not None else -1.0,
                 float(action_l2) if action_l2 is not None else -1.0,
                 float(action_l1) if action_l1 is not None else -1.0,
             ],
@@ -601,8 +629,13 @@ class Wan22Trainer:
         ).unsqueeze(0)
         gathered_metrics = self.accelerator.gather_for_metrics(local_metrics)
         mean_metrics = gathered_metrics[:, :7].mean(dim=0)
-        action_l2_mean = gathered_metrics[:, 7].mean().item() if action_l2 is not None else None
-        action_l1_mean = gathered_metrics[:, 8].mean().item() if action_l1 is not None else None
+        track_psnr_mean = None
+        track_ssim_mean = None
+        if psnr_track_rollout_vs_gt is not None:
+            track_psnr_mean = gathered_metrics[:, 7].mean().item()
+            track_ssim_mean = gathered_metrics[:, 8].mean().item()
+        action_l2_mean = gathered_metrics[:, 9].mean().item() if action_l2 is not None else None
+        action_l1_mean = gathered_metrics[:, 10].mean().item() if action_l1 is not None else None
 
         if was_dit_training:
             self._set_dit_only_train_mode()
@@ -617,6 +650,9 @@ class Wan22Trainer:
             "ssim_dg": float(mean_metrics[6].item()),
             "video_path": video_path,
         }
+        if track_psnr_mean is not None:
+            result["psnr_track_rg"] = float(track_psnr_mean)
+            result["ssim_track_rg"] = float(track_ssim_mean)
         if action_l2_mean is not None:
             result["action_l2"] = float(action_l2_mean)
         if action_l1_mean is not None:
@@ -802,6 +838,11 @@ class Wan22Trainer:
                                 description += " action_l2=%.4f" % metrics["action_l2"]
                             if "action_l1" in metrics:
                                 description += " action_l1=%.4f" % metrics["action_l1"]
+                            if "psnr_track_rg" in metrics:
+                                description += " track_psnr=%.4f track_ssim=%.4f" % (
+                                    metrics["psnr_track_rg"],
+                                    metrics["ssim_track_rg"],
+                                )
                             logger.info(description)
                             eval_payload = {
                                 "eval/val_loss": float(metrics["val_loss"]),
@@ -812,6 +853,9 @@ class Wan22Trainer:
                                 "eval/psnr_dg": float(metrics["psnr_dg"]),
                                 "eval/ssim_dg": float(metrics["ssim_dg"]),
                             }
+                            if "psnr_track_rg" in metrics:
+                                eval_payload["eval/psnr_track_rg"] = float(metrics["psnr_track_rg"])
+                                eval_payload["eval/ssim_track_rg"] = float(metrics["ssim_track_rg"])
                             if "action_l2" in metrics:
                                 eval_payload["eval/action_l2"] = float(metrics["action_l2"])
                             if "action_l1" in metrics:
