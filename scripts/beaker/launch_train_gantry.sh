@@ -6,6 +6,8 @@
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_uncond_2cam224_1e-4 --gpus 8
 #   ./scripts/beaker/launch_train_gantry.sh --user-name yejink --task libero_triple_2cam224_1e-4 --no-wandb
 #
+# Gantry flags (--allow-dirty, etc.) are passed to gantry only, never to Hydra/train.py.
+#
 # Requires: pip install beaker-py beaker-gantry  (NOT the PyPI package named "beaker")
 #           gantry config && beaker account whoami
 # Gantry installs via --install (torch cu128 index + pip install -e . from pyproject.toml).
@@ -27,7 +29,7 @@ PRECOMPUTE_TEXT=0
 WANDB=1
 WANDB_SECRET="YEJINK_WANDB_API_KEY" #wandb-api-key"
 EXTRA=()
-GANTRY_EXTRA=()
+GANTRY_EXTRA=(--allow-dirty)
 
 usage() {
   sed -n '2,12p' "$0"
@@ -50,7 +52,7 @@ while [[ $# -gt 0 ]]; do
     --precompute-text) PRECOMPUTE_TEXT=1; shift ;;
     --low-vram) export BEAKER_LOW_VRAM=1; shift ;;
     --no-low-vram) export BEAKER_LOW_VRAM=0; shift ;;
-    --allow-dirty) GANTRY_EXTRA+=("$1"); shift ;;
+    --allow-dirty) shift ;;  # default in GANTRY_EXTRA; do not add to Hydra overrides
     --wandb) WANDB=1; shift ;;
     --no-wandb) WANDB=0; shift ;;
     --wandb-secret) WANDB_SECRET="$2"; shift 2 ;;
@@ -99,6 +101,7 @@ fi
 GANTRY_ARGS=(
   run
   --yes
+  "${GANTRY_EXTRA[@]}"
   --workspace "${WORKSPACE}"
   --budget "${BUDGET}"
   --priority "${PRIORITY}"
@@ -155,4 +158,4 @@ echo "[paths] data=${DATA_ROOT} checkpoints=${CHECKPOINT_ROOT} runs=${RUNS_ROOT}
 echo "[wandb] enabled=$([[ "${WANDB}" == "1" ]] && echo true || echo false)"
 echo ">>> ${GANTRY_CMD} ${GANTRY_ARGS[*]} -- bash scripts/beaker/run_train.sh"
 # shellcheck disable=SC2086
-exec ${GANTRY_CMD} "${GANTRY_ARGS[@]}" "${GANTRY_EXTRA[@]}" -- bash scripts/beaker/run_train.sh
+exec ${GANTRY_CMD} "${GANTRY_ARGS[@]}" -- bash scripts/beaker/run_train.sh

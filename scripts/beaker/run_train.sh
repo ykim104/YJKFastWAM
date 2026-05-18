@@ -62,6 +62,10 @@ beaker_is_triple_task() {
 
 beaker_apply_memory_overrides() {
   local reason="${1:-}"
+  if [[ "${HYDRA_OVERRIDES}" == *"batch_size=8"* && "${HYDRA_OVERRIDES}" == *"mot_checkpoint_mixed_attn=true"* ]]; then
+    echo "[beaker] memory overrides already in HYDRA_OVERRIDES; skipping (${reason})"
+    return 0
+  fi
   HYDRA_OVERRIDES="${HYDRA_OVERRIDES} batch_size=8 gradient_accumulation_steps=2 model.mot_checkpoint_mixed_attn=true"
   echo "[beaker] memory Hydra overrides (${reason}): batch_size=8 grad_accum=2 mot_checkpoint=true"
 }
@@ -123,6 +127,35 @@ beaker_maybe_memory_overrides() {
 
 echo "[beaker] Detecting GPU memory for overrides (BEAKER_LOW_VRAM=${BEAKER_LOW_VRAM:-auto}, TASK=${TASK})..."
 beaker_maybe_memory_overrides
+
+# Gantry CLI flags (e.g. --allow-dirty) must not reach train.py / Hydra.
+beaker_sanitize_hydra_overrides() {
+  local -a gantry_only_flags=(
+    --allow-dirty
+    --no-priority
+    --no-venv
+    --no-python-cache
+  )
+  local -a cleaned=()
+  local token
+  for token in ${HYDRA_OVERRIDES:-}; do
+    local drop=0
+    for flag in "${gantry_only_flags[@]}"; do
+      if [[ "${token}" == "${flag}" ]]; then
+        echo "[beaker] Dropping gantry-only flag from HYDRA_OVERRIDES: ${token}" >&2
+        drop=1
+        break
+      fi
+    done
+    if (( drop == 0 )); then
+      cleaned+=("${token}")
+    fi
+  done
+  HYDRA_OVERRIDES="${cleaned[*]}"
+  export HYDRA_OVERRIDES
+}
+
+beaker_sanitize_hydra_overrides
 echo "[beaker] HYDRA_OVERRIDES=${HYDRA_OVERRIDES}"
 
 # Multi-node (Beaker leader selection + host networking).
