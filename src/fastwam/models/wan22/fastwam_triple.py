@@ -254,15 +254,18 @@ class FastWAMTriple(FastWAM):
 
         mask[v0:v1, v0:v1] = video_mask
         mask[t0:t1, t0:t1] = track_mask
-        mask[v0:v1, t0:t1] = True
+        # Track may read from video (auxiliary supervision on shared trunk), but
+        # video must NOT read from track or action: at inference `infer_action`
+        # runs the video expert in isolation (no track, no action), so any
+        # train-time contamination of video K/V breaks the action expert's
+        # cached attention. Likewise track must not read from action so the
+        # shared video/track trunk weights are not tuned for action context
+        # that disappears at deploy time.
         mask[t0:t1, v0:v1] = True
         mask[a0:a1, a0:a1] = True
 
         first_frame_tokens = min(video_tokens_per_frame, video_seq_len)
         mask[a0:a1, v0 : v0 + first_frame_tokens] = True
-
-        mask[v0:v1, a0:a1] = True
-        mask[t0:t1, a0:a1] = True
         return mask
 
     def _build_inference_mot_attention_mask(
