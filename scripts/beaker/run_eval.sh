@@ -93,33 +93,48 @@ beaker_install_eval_deps() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux libglew-dev libosmesa6-dev patchelf >/dev/null || true
   fi
 
-  _pip() {
-    if command -v uv >/dev/null 2>&1; then
-      uv pip install "$@"
-    else
-      "${PYTHON}" -m pip install "$@"
-    fi
-  }
-
-  _pip "mujoco==3.3.2"
+  # Use pip (not uv) for LIBERO sim stack: LIBERO's requirements.txt pins old
+  # numpy/torch/hydra and can confuse uv's resolver ("install" not found errors).
+  "${PYTHON}" -m pip install --no-cache-dir "mujoco==3.3.2"
 
   local libero_dir="${LIBERO_REPO:-/tmp/LIBERO}"
   if [[ ! -f "${libero_dir}/setup.py" ]]; then
     rm -rf "${libero_dir}"
     git clone --depth 1 https://github.com/Lifelong-Robot-Learning/LIBERO.git "${libero_dir}"
   fi
-  # Install LIBERO deps without overriding the job torch (already cu128 from gantry).
-  if [[ -f "${libero_dir}/requirements.txt" ]]; then
-    _pip install -r "${libero_dir}/requirements.txt" --no-deps 2>/dev/null || \
-      _pip install -r "${libero_dir}/requirements.txt" || true
-  fi
-  _pip install -e "${libero_dir}"
+
+  # Minimal runtime deps for OffScreenRenderEnv (skip LIBERO requirements.txt).
+  local libero_sim_deps=(
+    "robosuite==1.4.0"
+    "bddl==1.0.1"
+    "gym==0.25.2"
+    "cloudpickle==2.1.0"
+    "easydict==1.9"
+    "opencv-python-headless>=4.6.0.66"
+    "matplotlib>=3.5.3"
+  )
+  echo "[beaker-eval] Installing LIBERO sim dependencies: ${libero_sim_deps[*]}"
+  "${PYTHON}" -m pip install --no-cache-dir "${libero_sim_deps[@]}"
+
+  echo "[beaker-eval] Installing LIBERO package (editable, no deps) from ${libero_dir}"
+  "${PYTHON}" -m pip install --no-cache-dir --no-deps -e "${libero_dir}"
+
+  "${PYTHON}" - <<'PY'
+import libero
+from libero.libero import benchmark
+print("LIBERO import OK:", libero.__file__)
+print("benchmark suites:", list(benchmark.get_benchmark_dict().keys())[:4], "...")
+PY
+
   echo "[beaker-eval] LIBERO installed from ${libero_dir}"
 }
 
 beaker_check_weka
 beaker_resolve_eval_paths
 beaker_install_eval_deps
+
+REPO_ROOT="$(pwd)"
+export PYTHONPATH="${REPO_ROOT}/experiments/libero:${PYTHONPATH:-}"
 
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
 export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
