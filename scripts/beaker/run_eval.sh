@@ -140,11 +140,13 @@ beaker_install_eval_deps() {
   local libero_sim_deps=(
     "robosuite==1.4.0"
     "bddl==1.0.1"
+    "future==0.18.2"          # required by bddl
     "gym==0.25.2"
     "cloudpickle==2.1.0"
     "easydict==1.9"
     "opencv-python-headless>=4.6.0.66"
     "matplotlib>=3.5.3"
+    "h5py"                    # LIBERO reads task init states from .hdf5
   )
   echo "[beaker-eval] Installing LIBERO sim dependencies: ${libero_sim_deps[*]}"
   pip_install "${libero_sim_deps[@]}"
