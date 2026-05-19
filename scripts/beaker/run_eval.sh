@@ -113,7 +113,8 @@ beaker_install_eval_deps() {
 
   pip_install() {
     if [[ "${_installer}" == "uv_pip" ]]; then
-      uv pip install "$@"
+      # Pin uv to the gantry job venv so editable installs land on this PYTHON's sys.path.
+      uv pip install --python "${PYTHON}" "$@"
     else
       "${PYTHON}" -m pip install --no-cache-dir "$@"
     fi
@@ -144,12 +145,23 @@ beaker_install_eval_deps() {
   echo "[beaker-eval] Installing LIBERO package (editable, no deps) from ${libero_dir}"
   pip_install --no-deps -e "${libero_dir}"
 
-  "${PYTHON}" - <<'PY'
-import libero
-from libero.libero import benchmark
-print("LIBERO import OK:", libero.__file__)
-print("benchmark suites:", list(benchmark.get_benchmark_dict().keys())[:4], "...")
+  echo "[beaker-eval] sys.path / VIRTUAL_ENV check:"
+  "${PYTHON}" - <<PY
+import sys, os
+print("python:", sys.executable)
+print("VIRTUAL_ENV:", os.environ.get("VIRTUAL_ENV"))
+print("prefix:", sys.prefix)
+print("site-packages entries:")
+for p in sys.path:
+    if "site-packages" in p:
+        print(" ", p)
 PY
+
+  if ! "${PYTHON}" -c "import libero; from libero.libero import benchmark; print('LIBERO OK:', libero.__file__)"; then
+    echo "[beaker-eval] LIBERO not on \${PYTHON} sys.path; adding ${libero_dir} via PYTHONPATH"
+    export PYTHONPATH="${libero_dir}:${PYTHONPATH:-}"
+    "${PYTHON}" -c "import libero; from libero.libero import benchmark; print('LIBERO OK (PYTHONPATH):', libero.__file__)"
+  fi
 
   echo "[beaker-eval] LIBERO installed from ${libero_dir}"
 }
