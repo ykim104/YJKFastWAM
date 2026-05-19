@@ -107,3 +107,48 @@ def resolve_resume_path(resume: str | Path, output_dir: str | Path | None = None
         "Expected a task dir with latest/, task/latest symlink, state step dir, "
         "run dir under a task with latest/, or checkpoints/weights/*.pt file."
     )
+
+
+def _is_state_step_layout(path: Path) -> bool:
+    return path.is_dir() and path.name.startswith("step_") and path.parent.name == "state"
+
+
+def resolve_eval_ckpt(resume: str | Path) -> tuple[str, str | None]:
+    """Resolve LIBERO eval weights (.pt) and optional dataset_stats.json.
+
+    Accepts the same path forms as :func:`resolve_resume_path`. State checkpoints
+    are mapped to ``checkpoints/weights/{step_tag}.pt`` in the same run directory.
+    """
+    path = Path(str(resume)).expanduser()
+    if not path.is_absolute():
+        path = path.resolve()
+    else:
+        path = path.resolve()
+
+    if path.is_file() and path.suffix == ".pt":
+        ckpt = path
+        run_dir = run_dir_from_weights_file(path)
+    elif _is_state_step_layout(path):
+        run_dir = run_dir_from_state_dir(path)
+        ckpt = run_dir / "checkpoints" / "weights" / f"{path.name}.pt"
+    else:
+        _, resume_path = resolve_resume_path(resume)
+        resolved = Path(resume_path)
+        if resolved.is_file() and resolved.suffix == ".pt":
+            ckpt = resolved
+            run_dir = run_dir_from_weights_file(resolved)
+        elif _is_state_step_layout(resolved):
+            run_dir = run_dir_from_state_dir(resolved)
+            ckpt = run_dir / "checkpoints" / "weights" / f"{resolved.name}.pt"
+        else:
+            raise FileNotFoundError(
+                f"Could not resolve eval checkpoint from: {resume}. "
+                f"Got: {resolved}"
+            )
+
+    if not ckpt.is_file():
+        raise FileNotFoundError(f"Eval weights checkpoint not found: {ckpt}")
+
+    stats_path = run_dir / "dataset_stats.json"
+    stats = str(stats_path) if stats_path.is_file() else None
+    return str(ckpt), stats
