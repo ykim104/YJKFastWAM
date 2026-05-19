@@ -93,9 +93,33 @@ beaker_install_eval_deps() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux libglew-dev libosmesa6-dev patchelf >/dev/null || true
   fi
 
-  # Use pip (not uv) for LIBERO sim stack: LIBERO's requirements.txt pins old
-  # numpy/torch/hydra and can confuse uv's resolver ("install" not found errors).
-  "${PYTHON}" -m pip install --no-cache-dir "mujoco==3.3.2"
+  # Pick installer: prefer uv (gantry venv has no `pip`), fall back to python -m pip.
+  local _installer
+  if command -v uv >/dev/null 2>&1; then
+    _installer="uv_pip"
+  elif "${PYTHON}" -m pip --version >/dev/null 2>&1; then
+    _installer="py_pip"
+  else
+    echo "[beaker-eval] Bootstrapping pip via ensurepip..."
+    "${PYTHON}" -m ensurepip --upgrade >/dev/null 2>&1 || true
+    if "${PYTHON}" -m pip --version >/dev/null 2>&1; then
+      _installer="py_pip"
+    else
+      echo "[beaker-eval] ERROR: neither uv nor pip available in venv ${VIRTUAL_ENV:-?}" >&2
+      exit 1
+    fi
+  fi
+  echo "[beaker-eval] Using installer: ${_installer}"
+
+  pip_install() {
+    if [[ "${_installer}" == "uv_pip" ]]; then
+      uv pip install "$@"
+    else
+      "${PYTHON}" -m pip install --no-cache-dir "$@"
+    fi
+  }
+
+  pip_install "mujoco==3.3.2"
 
   local libero_dir="${LIBERO_REPO:-/tmp/LIBERO}"
   if [[ ! -f "${libero_dir}/setup.py" ]]; then
@@ -103,7 +127,8 @@ beaker_install_eval_deps() {
     git clone --depth 1 https://github.com/Lifelong-Robot-Learning/LIBERO.git "${libero_dir}"
   fi
 
-  # Minimal runtime deps for OffScreenRenderEnv (skip LIBERO requirements.txt).
+  # Minimal runtime deps for OffScreenRenderEnv. Skip LIBERO's requirements.txt
+  # because it pins old numpy/hydra/thop that conflict with the training venv.
   local libero_sim_deps=(
     "robosuite==1.4.0"
     "bddl==1.0.1"
@@ -114,10 +139,10 @@ beaker_install_eval_deps() {
     "matplotlib>=3.5.3"
   )
   echo "[beaker-eval] Installing LIBERO sim dependencies: ${libero_sim_deps[*]}"
-  "${PYTHON}" -m pip install --no-cache-dir "${libero_sim_deps[@]}"
+  pip_install "${libero_sim_deps[@]}"
 
   echo "[beaker-eval] Installing LIBERO package (editable, no deps) from ${libero_dir}"
-  "${PYTHON}" -m pip install --no-cache-dir --no-deps -e "${libero_dir}"
+  pip_install --no-deps -e "${libero_dir}"
 
   "${PYTHON}" - <<'PY'
 import libero
