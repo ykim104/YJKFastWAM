@@ -145,23 +145,46 @@ beaker_install_eval_deps() {
   echo "[beaker-eval] Installing LIBERO package (editable, no deps) from ${libero_dir}"
   pip_install --no-deps -e "${libero_dir}"
 
+  # Always add the LIBERO repo to PYTHONPATH: uv's PEP 660 editable install for
+  # LIBERO's old setup.py doesn't reliably register the package on sys.path.
+  export LIBERO_REPO_DIR="${libero_dir}"
+  export PYTHONPATH="${libero_dir}:${PYTHONPATH:-}"
+
+  # LIBERO's libero/libero/__init__.py asks for an interactive path on first
+  # import. Pre-write the config to a writable LIBERO_CONFIG_PATH and skip it.
+  export LIBERO_CONFIG_PATH="${LIBERO_CONFIG_PATH:-/tmp/libero_config}"
+  mkdir -p "${LIBERO_CONFIG_PATH}"
+  "${PYTHON}" - <<PY
+import os, yaml
+libero_root = os.path.join(os.environ["LIBERO_REPO_DIR"], "libero", "libero")
+cfg = {
+    "benchmark_root": libero_root,
+    "bddl_files":   os.path.join(libero_root, "bddl_files"),
+    "init_states":  os.path.join(libero_root, "init_files"),
+    "datasets":     os.path.normpath(os.path.join(libero_root, "..", "datasets")),
+    "assets":       os.path.join(libero_root, "assets"),
+}
+cfg_dir = os.environ["LIBERO_CONFIG_PATH"]
+os.makedirs(cfg_dir, exist_ok=True)
+with open(os.path.join(cfg_dir, "config.yaml"), "w") as f:
+    yaml.dump(cfg, f)
+print("[beaker-eval] wrote LIBERO config:", os.path.join(cfg_dir, "config.yaml"))
+PY
+
   echo "[beaker-eval] sys.path / VIRTUAL_ENV check:"
   "${PYTHON}" - <<PY
 import sys, os
 print("python:", sys.executable)
 print("VIRTUAL_ENV:", os.environ.get("VIRTUAL_ENV"))
-print("prefix:", sys.prefix)
+print("LIBERO_CONFIG_PATH:", os.environ.get("LIBERO_CONFIG_PATH"))
+print("PYTHONPATH:", os.environ.get("PYTHONPATH"))
 print("site-packages entries:")
 for p in sys.path:
     if "site-packages" in p:
         print(" ", p)
 PY
 
-  if ! "${PYTHON}" -c "import libero; from libero.libero import benchmark; print('LIBERO OK:', libero.__file__)"; then
-    echo "[beaker-eval] LIBERO not on \${PYTHON} sys.path; adding ${libero_dir} via PYTHONPATH"
-    export PYTHONPATH="${libero_dir}:${PYTHONPATH:-}"
-    "${PYTHON}" -c "import libero; from libero.libero import benchmark; print('LIBERO OK (PYTHONPATH):', libero.__file__)"
-  fi
+  "${PYTHON}" -c "import libero; from libero.libero import benchmark; print('LIBERO OK:', libero.__file__); print('suites:', list(benchmark.get_benchmark_dict().keys())[:4])"
 
   echo "[beaker-eval] LIBERO installed from ${libero_dir}"
 }
