@@ -135,6 +135,19 @@ beaker_install_eval_deps() {
     git clone --depth 1 https://github.com/Lifelong-Robot-Learning/LIBERO.git "${libero_dir}"
   fi
 
+  # PyTorch 2.6 changed torch.load default to weights_only=True. LIBERO's
+  # init_states are pickled numpy arrays; force weights_only=False on those calls.
+  local libero_benchmark_init="${libero_dir}/libero/libero/benchmark/__init__.py"
+  if [[ -f "${libero_benchmark_init}" ]]; then
+    if ! grep -q "weights_only=False" "${libero_benchmark_init}"; then
+      echo "[beaker-eval] Patching LIBERO benchmark torch.load -> weights_only=False"
+      sed -i \
+        -e 's/torch\.load(init_states_path)/torch.load(init_states_path, weights_only=False)/g' \
+        -e 's/torch\.load(\(self\.[a-zA-Z_]\+_path\))/torch.load(\1, weights_only=False)/g' \
+        "${libero_benchmark_init}"
+    fi
+  fi
+
   # Minimal runtime deps for OffScreenRenderEnv. Skip LIBERO's requirements.txt
   # because it pins old numpy/hydra/thop that conflict with the training venv.
   local libero_sim_deps=(
