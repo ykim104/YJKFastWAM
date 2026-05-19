@@ -221,6 +221,41 @@ export PYTHONPATH="${REPO_ROOT}/experiments/libero:${PYTHONPATH:-}"
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
 export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
 
+# Beaker NVIDIA containers mount libEGL_nvidia.so.0 from the host driver, but
+# don't include the GLVND vendor JSON, so libglvnd only sees Mesa's libEGL
+# (which lacks EGL_EXT_platform_device used by robosuite). Register NVIDIA's
+# EGL ICD so the loader picks NVIDIA's libEGL when available.
+beaker_register_nvidia_egl() {
+  local libnvegl
+  libnvegl="$(ldconfig -p 2>/dev/null | awk '/libEGL_nvidia.so.0/ {print $NF; exit}')"
+  if [[ -z "${libnvegl}" ]]; then
+    for cand in /usr/lib/x86_64-linux-gnu/libEGL_nvidia.so.0 \
+                /usr/lib64/libEGL_nvidia.so.0 \
+                /usr/lib/libEGL_nvidia.so.0; do
+      if [[ -e "${cand}" ]]; then libnvegl="${cand}"; break; fi
+    done
+  fi
+
+  if [[ -z "${libnvegl}" ]]; then
+    echo "[beaker-eval] libEGL_nvidia.so.0 not found; skipping NVIDIA EGL ICD registration"
+    return 0
+  fi
+
+  local vendor_dir="/usr/share/glvnd/egl_vendor.d"
+  local vendor_json="${vendor_dir}/10_nvidia.json"
+  mkdir -p "${vendor_dir}" || true
+  cat > "${vendor_json}" <<EOF
+{
+    "file_format_version" : "1.0.0",
+    "ICD" : { "library_path" : "${libnvegl}" }
+}
+EOF
+  # Prefer NVIDIA's vendor JSON over Mesa's; fall back to the directory if needed.
+  export __EGL_VENDOR_LIBRARY_FILENAMES="${vendor_json}"
+  echo "[beaker-eval] Registered NVIDIA EGL ICD: ${vendor_json} -> ${libnvegl}"
+}
+beaker_register_nvidia_egl
+
 # Probe robosuite's GL context (the one LIBERO actually uses). robosuite's
 # EGL path needs EGL_EXT_platform_device which Mesa's libEGL doesn't support;
 # we fall back to OSMesa software rendering when that's the case.
@@ -275,6 +310,7 @@ export LIBERO_CONFIG_PATH="${LIBERO_CONFIG_PATH}"
 export LIBERO_REPO_DIR="${LIBERO_REPO_DIR}"
 export MUJOCO_GL="${MUJOCO_GL}"
 export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM}"
+export __EGL_VENDOR_LIBRARY_FILENAMES="${__EGL_VENDOR_LIBRARY_FILENAMES:-}"
 export DIFFSYNTH_MODEL_BASE_PATH="${DIFFSYNTH_MODEL_BASE_PATH}"
 export FASTWAM_DATA_ROOT="${FASTWAM_DATA_ROOT}"
 export FASTWAM_CHECKPOINTS_ROOT="${FASTWAM_CHECKPOINTS_ROOT}"
