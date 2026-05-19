@@ -90,11 +90,11 @@ beaker_install_eval_deps() {
   echo "[beaker-eval] Installing eval dependencies (tmux, mujoco, LIBERO)..."
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update -qq
-    # libegl1, libgles2 + libglx-mesa0 are required so PyOpenGL/mujoco can load
-    # EGL for headless GPU rendering (MUJOCO_GL=egl).
+    # libegl1 / libgles2 / libglvnd-dev: enable headless EGL (MUJOCO_GL=egl).
+    # libosmesa6 + libglapi-mesa: enable software rendering fallback (MUJOCO_GL=osmesa).
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
       tmux \
-      libglew-dev libosmesa6-dev \
+      libglew-dev libosmesa6 libosmesa6-dev libglapi-mesa \
       libegl1 libgles2 libglvnd-dev libglx-mesa0 libgl1 libglib2.0-0 \
       patchelf \
       >/dev/null || true
@@ -221,36 +221,43 @@ export PYTHONPATH="${REPO_ROOT}/experiments/libero:${PYTHONPATH:-}"
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
 export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
 
-# Probe EGL; fall back to OSMesa software rendering if libEGL isn't loadable.
-beaker_probe_mujoco_gl() {
+# Probe robosuite's GL context (the one LIBERO actually uses). robosuite's
+# EGL path needs EGL_EXT_platform_device which Mesa's libEGL doesn't support;
+# we fall back to OSMesa software rendering when that's the case.
+beaker_probe_render_backend() {
   local probe_rc=0
   MUJOCO_GL="${MUJOCO_GL}" PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM}" \
     "${PYTHON}" - <<'PY' || probe_rc=$?
 import os, sys
-os.environ.setdefault("MUJOCO_GL", "egl")
+backend = os.environ.get("MUJOCO_GL", "egl")
+print(f"[beaker-eval] render probe: backend={backend}")
 try:
-    import mujoco
-    ctx = mujoco.GLContext(64, 64)
+    if backend == "egl":
+        from robosuite.renderers.context.egl_context import EGLGLContext as Ctx
+        ctx = Ctx(max_width=64, max_height=64, device_id=0)
+    elif backend == "osmesa":
+        from robosuite.renderers.context.osmesa_context import OSMesaGLContext as Ctx
+        ctx = Ctx(max_width=64, max_height=64, device_id=0)
+    else:
+        raise ValueError(f"unsupported backend {backend}")
     ctx.free()
 except Exception as e:
-    print(f"[beaker-eval] mujoco GL probe failed ({os.environ.get('MUJOCO_GL')}): {e}", file=sys.stderr)
+    print(f"[beaker-eval] render probe failed ({backend}): {type(e).__name__}: {e}", file=sys.stderr)
     sys.exit(2)
-print("[beaker-eval] mujoco GL probe OK:", os.environ.get("MUJOCO_GL"))
+print(f"[beaker-eval] render probe OK: {backend}")
 PY
-  if [[ ${probe_rc} -ne 0 ]]; then
+  if [[ ${probe_rc} -ne 0 && "${MUJOCO_GL}" == "egl" ]]; then
     echo "[beaker-eval] Falling back to MUJOCO_GL=osmesa (software rendering)"
     export MUJOCO_GL=osmesa
     export PYOPENGL_PLATFORM=osmesa
-    "${PYTHON}" - <<'PY' || true
-import os
-os.environ["MUJOCO_GL"] = "osmesa"
-import mujoco
-ctx = mujoco.GLContext(64, 64); ctx.free()
-print("[beaker-eval] mujoco GL probe OK (osmesa)")
+    MUJOCO_GL=osmesa PYOPENGL_PLATFORM=osmesa "${PYTHON}" - <<'PY'
+from robosuite.renderers.context.osmesa_context import OSMesaGLContext
+ctx = OSMesaGLContext(max_width=64, max_height=64, device_id=0); ctx.free()
+print("[beaker-eval] render probe OK (osmesa)")
 PY
   fi
 }
-beaker_probe_mujoco_gl
+beaker_probe_render_backend
 
 # run_libero_parallel_test.sh launches each task in a tmux pane that `source ~/.bashrc`s.
 # Beaker images don't have a useful ~/.bashrc, so the gantry venv + our PYTHONPATH /
