@@ -381,33 +381,31 @@ run_libero_eval() {
             [ -z "$suite" ] || [ -z "$task_id" ] && continue
 
             local status_file="$TASK_STATUS_DIR/${suite}_task${task_id}.status"
-            local any_result_pattern="$OUTPUT_DIR/$suite/gpu*_task${task_id}_results.json"
 
-            # The result file exists: the task succeeded, so release the mapping and GPU load
-            if ls $any_result_pattern 1> /dev/null 2>&1; then
-                local new_load=$(decrement_gpu_load "$gpu_id")
-                rm -f "$status_file"
-                ((CLEANED_COUNT++))
-                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task completed: $suite task_id=$task_id GPU$gpu_id released (load: $new_load/$MAX_TASKS_PER_GPU)"
-                continue
-            fi
-
-            # The task process exited with failure: detect it, report it, and reclaim the mapping
+            # IMPORTANT: only consider a task "done" once the wrapper has written
+            # the .status file. The wrapper writes the status file AFTER the
+            # python process exits (`rc=$?`), which is the moment the OS reclaims
+            # the process's CUDA memory. If we instead released the GPU slot as
+            # soon as the result JSON appeared, a new task could be scheduled on
+            # the same GPU while the old process is still tearing down (and
+            # holding ~18 GB), spiking concurrent allocations and triggering
+            # OOM or the OOM killer. See historical incident: triple-modality
+            # eval OOM with 4 PIDs/GPU and uncond eval `rc=137` SIGKILL.
             if [ -f "$status_file" ]; then
                 IFS='|' read -r status status_gpu status_rc status_ts status_log < "$status_file"
+                if [ "$status" = "SUCCESS" ]; then
+                    local new_load=$(decrement_gpu_load "$gpu_id")
+                    rm -f "$status_file"
+                    ((CLEANED_COUNT++))
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task completed: $suite task_id=$task_id GPU$gpu_id released (load: $new_load/$MAX_TASKS_PER_GPU)"
+                    continue
+                fi
                 if [ "$status" = "FAILED" ]; then
                     local new_load=$(decrement_gpu_load "$gpu_id")
                     mark_task_failed "$suite" "$task_id" "$gpu_id" "${status_rc:-unknown}" "${status_log:-unknown}"
                     ((NEW_FAILURE_COUNT++))
                     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task failed: $suite task_id=$task_id rc=$status_rc GPU$gpu_id (current load: $new_load/$MAX_TASKS_PER_GPU)"
                     rm -f "$status_file"
-                    continue
-                fi
-                if [ "$status" = "SUCCESS" ]; then
-                    local new_load=$(decrement_gpu_load "$gpu_id")
-                    rm -f "$status_file"
-                    ((CLEANED_COUNT++))
-                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Task completed (status file): $suite task_id=$task_id GPU$gpu_id released (load: $new_load/$MAX_TASKS_PER_GPU)"
                     continue
                 fi
             fi

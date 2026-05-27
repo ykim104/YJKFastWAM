@@ -49,7 +49,12 @@ MULTIRUN:
     - libero_spatial
     - libero_object
   num_gpus: 8
-  max_tasks_per_gpu: 2
+  # 1 task per 80 GB GPU is the safe default for Wan2.2-TI2V-5B-based policies
+  # (video expert ~5 B + action expert ~1 B = ~18 GB peak per eval process).
+  # Override to 2 from the CLI (`MULTIRUN.max_tasks_per_gpu=2`) only for
+  # smaller/half-loaded checkpoints; running 2 has tripped OOM and OOM-killer
+  # SIGKILLs on shared 80 GB GPUs during checkpoint load / env init.
+  max_tasks_per_gpu: 1
 
 hydra:
   job:
