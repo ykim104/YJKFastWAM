@@ -7,6 +7,7 @@ from einops import rearrange
 from .helpers.gradient import gradient_checkpoint_forward
 
 from fastwam.utils.logging_config import get_logger
+from fastwam.utils.shape_debug import dprint, dsection, shape_debug_enabled
 
 logger = get_logger(__name__)
 
@@ -606,6 +607,24 @@ class WanVideoDiT(torch.nn.Module):
             self.freqs[2][:w].view(1, 1, w, -1).expand(f, h, w, -1)
         ], dim=-1).reshape(f * h * w, 1, -1).to(x_tokens.device)
 
+        if shape_debug_enabled():
+            cls_label = type(self).__name__
+            dsection(f"{cls_label}.pre_dit (video-style modality-specific stems)")
+            dprint(
+                f"{cls_label}.pre_dit.patchify_out",
+                x_tokens=x_tokens,
+                grid_size=(f, h, w),
+                tokens_per_frame=tokens_per_frame,
+            )
+            dprint(
+                f"{cls_label}.pre_dit.conditioning",
+                t=t,
+                t_mod=t_mod,
+                context=context,
+                context_mask=context_mask,
+                freqs=freqs,
+            )
+
         return {
             "tokens": x_tokens,
             "freqs": freqs,
@@ -622,8 +641,16 @@ class WanVideoDiT(torch.nn.Module):
 
     def post_dit(self, x_tokens: torch.Tensor, pre_state: Dict[str, Any]) -> torch.Tensor:
         f, h, w = pre_state["meta"]["grid_size"]
-        x = self.head(x_tokens, pre_state["t"])
-        x = self.unpatchify(x, (f, h, w))
+        head_out = self.head(x_tokens, pre_state["t"])
+        x = self.unpatchify(head_out, (f, h, w))
+        if shape_debug_enabled():
+            cls_label = type(self).__name__
+            dprint(
+                f"{cls_label}.post_dit",
+                x_tokens_in=x_tokens,
+                head_out=head_out,
+                unpatchify_out=x,
+            )
         return x
 
     def forward(

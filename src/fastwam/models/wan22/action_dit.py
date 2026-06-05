@@ -4,6 +4,7 @@ import torch.nn as nn
 from typing import Any, Dict, Optional
 
 from fastwam.utils.logging_config import get_logger
+from fastwam.utils.shape_debug import dprint, dsection, shape_debug_enabled
 
 from .helpers.gradient import gradient_checkpoint_forward
 from .wan_video_dit import (
@@ -285,6 +286,19 @@ class ActionDiT(nn.Module):
         context_attn_mask = context_mask.unsqueeze(1).expand(-1, seq_len, -1)
         freqs = self.freqs[:seq_len].view(seq_len, 1, -1).to(tokens.device)
 
+        if shape_debug_enabled():
+            dsection("ActionDiT.pre_dit (action modality-specific stems)")
+            dprint(
+                "ActionDiT.pre_dit",
+                action_tokens_in=action_tokens,
+                tokens=tokens,
+                freqs=freqs,
+                t=t,
+                t_mod=t_mod,
+                context=context_emb,
+                context_mask=context_attn_mask,
+            )
+
         return {
             "tokens": tokens,
             "freqs": freqs,
@@ -299,7 +313,10 @@ class ActionDiT(nn.Module):
         }
 
     def post_dit(self, tokens: torch.Tensor, pre_state: Dict[str, Any]) -> torch.Tensor:
-        return self.head(tokens)
+        out = self.head(tokens)
+        if shape_debug_enabled():
+            dprint("ActionDiT.post_dit", tokens_in=tokens, head_out=out)
+        return out
 
     def forward(
         self,

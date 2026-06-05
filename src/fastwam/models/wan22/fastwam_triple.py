@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 
 from fastwam.utils.logging_config import get_logger
+from fastwam.utils.shape_debug import dprint, dsection, shape_debug_enabled
 
 from .action_dit import ActionDiT
 from .fastwam import FastWAM
@@ -332,6 +333,26 @@ class FastWAMTriple(FastWAM):
         image_is_pad = inputs["image_is_pad"]
         track_video = sample["track_video"].to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
 
+        if shape_debug_enabled():
+            dsection("FastWAMTriple.training_loss inputs (after VAE encode + text embed)")
+            dprint(
+                "training_loss.raw",
+                input_video=sample.get("video"),
+                track_video=track_video,
+                action=action,
+            )
+            dprint(
+                "training_loss.encoded",
+                input_latents=input_latents,
+                track_latents=track_latents,
+                context=context,
+                context_mask=context_mask,
+                first_frame_latents=inputs.get("first_frame_latents"),
+                first_frame_track_latents=inputs.get("first_frame_track_latents"),
+                action_is_pad=action_is_pad,
+                image_is_pad=image_is_pad,
+            )
+
         noise_video = torch.randn_like(input_latents)
         timestep_video = self.train_video_scheduler.sample_training_t(
             batch_size=batch_size,
@@ -424,6 +445,15 @@ class FastWAMTriple(FastWAM):
         pred_video = self.video_expert.post_dit(tokens_out["video"], video_pre)
         pred_track = self.track_expert.post_dit(tokens_out["track"], track_pre)
         pred_action = self.action_expert.post_dit(tokens_out["action"], action_pre)
+
+        if shape_debug_enabled():
+            dsection("FastWAMTriple.training_loss predictions (post-MoT, per-modality heads)")
+            dprint(
+                "training_loss.predictions",
+                pred_video=pred_video,
+                pred_track=pred_track,
+                pred_action=pred_action,
+            )
 
         include_initial_video_step = inputs["first_frame_latents"] is None
         if inputs["first_frame_latents"] is not None:

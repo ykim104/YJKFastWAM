@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from .wan_video_dit import flash_attention, modulate, rope_apply
 from fastwam.utils.logging_config import get_logger
+from fastwam.utils.shape_debug import dprint, dsection, shape_debug_enabled
 
 logger = get_logger(__name__)
 
@@ -482,6 +483,12 @@ class MoT(nn.Module):
 
         tokens_all = {k: v for k, v in embeds_all.items()}
 
+        if shape_debug_enabled():
+            dsection(f"MoT.forward (experts={self.expert_order}, num_layers={self.num_layers})")
+            for name in self.expert_order:
+                dprint(f"MoT.input[{name}]", tokens=tokens_all[name], freqs=freqs_all[name], t_mod=t_mod_all[name])
+            dprint("MoT.attention_mask", mask=attention_mask)
+
         for layer_idx in range(self.num_layers):
             q_chunks = []
             k_chunks = []
@@ -514,6 +521,17 @@ class MoT(nn.Module):
                     t_mod=t_mod,
                 )
 
+                if shape_debug_enabled() and layer_idx == 0:
+                    # Modality-specific projections: each expert has its own q/k/v/o, norms,
+                    # FFN, modulation, cross-attn -- only the *attention math* below is shared.
+                    dprint(
+                        f"MoT.layer0.expert[{name}].per_modality_qkv",
+                        q=q,
+                        k=k,
+                        v=v,
+                        gate_msa=gate_msa,
+                    )
+
                 q_chunks.append(q)
                 k_chunks.append(k)
                 v_chunks.append(v)
@@ -542,6 +560,18 @@ class MoT(nn.Module):
 
             mixed = self._mixed_attention(q_cat=q_cat, k_cat=k_cat, v_cat=v_cat, attention_mask=attention_mask)
 
+            if shape_debug_enabled() and layer_idx == 0:
+                # SHARED operation: concatenated Q/K/V from every expert feed a single
+                # scaled-dot-product call. This is the only place cross-modality info flows.
+                dprint(
+                    "MoT.layer0.SHARED_mixed_attention",
+                    q_cat=q_cat,
+                    k_cat=k_cat,
+                    v_cat=v_cat,
+                    mixed=mixed,
+                    seq_lens_per_expert=dict(zip(self.expert_order, seq_lens)),
+                )
+
             start = 0
             for name, seq_len in zip(self.expert_order, seq_lens):
                 # 4. split mixed attention output and apply post-attention blocks for each expert
@@ -563,7 +593,17 @@ class MoT(nn.Module):
                     context_payload=context_payload,
                 )
 
+                if shape_debug_enabled() and layer_idx == 0:
+                    dprint(
+                        f"MoT.layer0.expert[{name}].after_post_block",
+                        updated_tokens=updated_tokens,
+                    )
+
                 tokens_all[name] = updated_tokens
                 start = end
+
+        if shape_debug_enabled():
+            for name in self.expert_order:
+                dprint(f"MoT.output[{name}]", tokens=tokens_all[name])
 
         return tokens_all
