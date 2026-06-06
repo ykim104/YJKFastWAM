@@ -1,0 +1,15 @@
+defaults:
+  - robotwin
+
+train:
+  shape_meta:
+    track_images:
+      - key: cam_high
+        raw_shape: [3, 480, 640]
+        shape: [3, 240, 320]
+      - key: cam_left_wrist
+        raw_shape: [3, 480, 640]
+        shape: [3, 240, 320]
+      - key: cam_right_wrist
+        raw_shape: [3, 480, 640]
+        shape: [3, 240, 320]
