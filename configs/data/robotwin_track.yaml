@@ -13,3 +13,19 @@ train:
       - key: cam_right_wrist
         raw_shape: [3, 480, 640]
         shape: [3, 240, 320]
+
+# The val processor inherits train.shape_meta (${data.train.shape_meta}), so it
+# requires track_images. The val *dataset* loads images per val.shape_meta, so it
+# must declare the same track_images keys or eval crashes when it samples.
+val:
+  shape_meta:
+    track_images:
+      - key: cam_high
+        raw_shape: [3, 480, 640]
+        shape: [3, 240, 320]
+      - key: cam_left_wrist
+        raw_shape: [3, 480, 640]
+        shape: [3, 240, 320]
+      - key: cam_right_wrist
+        raw_shape: [3, 480, 640]
+        shape: [3, 240, 320]
