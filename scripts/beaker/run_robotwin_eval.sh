@@ -208,19 +208,34 @@ beaker_install_sim_deps() {
   # by run_robotwin_setup.sh into the Weka source tree, so this editable install
   # reuses the .so (no recompile, no nvcc needed) and pulls curobo's runtime deps
   # (warp-lang, etc.) into this fresh venv.
-  if ! "${PYTHON}" -c "import curobo" >/dev/null 2>&1; then
-    if [[ -d "${ROBOTWIN_ENV_DIR}/envs/curobo" ]]; then
-      echo "[beaker-rt] Registering prebuilt curobo from staged env"
+  local curobo_dir="${ROBOTWIN_ENV_DIR}/envs/curobo"
+  if ! "${PYTHON}" -c "import curobo; import curobo.wrap" >/dev/null 2>&1; then
+    if [[ -d "${curobo_dir}" ]]; then
+      echo "[beaker-rt] Registering prebuilt curobo from staged env (editable compat)"
       "${pip_install[@]}" "warp-lang" || true
-      "${pip_install[@]}" -e "${ROBOTWIN_ENV_DIR}/envs/curobo" --no-build-isolation || {
-        echo "[beaker-rt] ERROR: curobo register failed. Run scripts/beaker/launch_robotwin_setup_gantry.sh first." >&2
-        exit 1
-      }
+      # compat editable: exposes all submodules and reuses the prebuilt .so (no
+      # recompile -> no nvcc needed) since they were built by run_robotwin_setup.sh.
+      if command -v uv >/dev/null 2>&1; then
+        "${pip_install[@]}" -e "${curobo_dir}" --no-build-isolation --config-setting editable_mode=compat || true
+      else
+        "${pip_install[@]}" -e "${curobo_dir}" --no-build-isolation --config-settings editable_mode=compat || true
+      fi
     else
       echo "[beaker-rt] ERROR: curobo not importable and no staged envs/curobo." >&2
       echo "[beaker-rt] Build it first: scripts/beaker/launch_robotwin_setup_gantry.sh" >&2
       exit 1
     fi
+  fi
+  # Final guarantee: if curobo.wrap still isn't importable, fall back to src/ on PYTHONPATH.
+  if ! "${PYTHON}" -c "import curobo.wrap" >/dev/null 2>&1; then
+    if [[ -d "${curobo_dir}/src/curobo" ]]; then
+      echo "[beaker-rt] Adding curobo src/ to PYTHONPATH (editable finder fallback)"
+      export PYTHONPATH="${curobo_dir}/src:${PYTHONPATH:-}"
+    fi
+    "${PYTHON}" -c "import curobo.wrap; from curobo.wrap.reacher.motion_gen import MotionGen" || {
+      echo "[beaker-rt] ERROR: curobo.wrap unimportable; re-run launch_robotwin_setup_gantry.sh." >&2
+      exit 1
+    }
   fi
 
   beaker_patch_sim_pkgs

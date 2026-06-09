@@ -96,6 +96,21 @@ rt_pip() {
   fi
 }
 
+# Editable install in setuptools "compat" mode: unlike uv's default PEP 660
+# editable (which hid curobo.wrap and skipped the in-place ext build), compat mode
+# runs build_ext in-place (compiling the CUDA .so into the source tree, cached on
+# Weka) and adds the real src/ dir to the path so all submodules import.
+rt_pip_editable_compat() {
+  local dir="$1"
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install --python "${PYTHON}" -e "${dir}" --no-build-isolation \
+      --config-setting editable_mode=compat
+  else
+    "${PYTHON}" -m pip install --no-cache-dir -e "${dir}" --no-build-isolation \
+      --config-settings editable_mode=compat
+  fi
+}
+
 rt_build_curobo() {
   local curobo_dir="${ROBOTWIN_ENV_DIR}/envs/curobo"
   if [[ ! -f "${curobo_dir}/setup.py" && ! -f "${curobo_dir}/pyproject.toml" ]]; then
@@ -106,14 +121,27 @@ rt_build_curobo() {
     echo "[rt-setup] Reusing existing curobo source at ${curobo_dir}"
   fi
 
-  echo "[rt-setup] Building curobo (editable, compiles CUDA ext into the Weka tree)..."
+  # Cover A100 (8.0), L40/L40S (8.9), H100 (9.0). Building for several arches is
+  # slower but makes the cached .so usable across the eval clusters.
+  export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0;8.6;8.9;9.0}"
+
+  echo "[rt-setup] Installing curobo (editable compat; compiles CUDA ext into Weka tree)..."
   # warp-lang is curobo's runtime dep; install it explicitly so eval jobs have it.
   rt_pip "warp-lang" || true
-  TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0;9.0}" \
-    rt_pip -e "${curobo_dir}" --no-build-isolation
+  rt_pip_editable_compat "${curobo_dir}"
+
+  # Belt-and-suspenders: force the in-place extension build so the .so are present
+  # in the source tree on Weka even if the editable install skipped build_ext.
+  echo "[rt-setup] Compiling curobo CUDA extensions in-place (nvcc)..."
+  ( cd "${curobo_dir}" && "${PYTHON}" setup.py build_ext --inplace ) || \
+    echo "[rt-setup] WARNING: build_ext --inplace returned nonzero (check logs)" >&2
 
   echo "[rt-setup] Verifying curobo import..."
-  "${PYTHON}" -c "import curobo; from curobo.wrap.reacher.motion_gen import MotionGen; print('curobo OK:', curobo.__file__)"
+  "${PYTHON}" -c "import curobo; from curobo.wrap.reacher.motion_gen import MotionGen; print('curobo OK:', curobo.__file__)" || {
+    echo "[rt-setup] editable import still failing; verifying via PYTHONPATH=src fallback..." >&2
+    PYTHONPATH="${curobo_dir}/src:${PYTHONPATH:-}" "${PYTHON}" -c \
+      "import curobo; from curobo.wrap.reacher.motion_gen import MotionGen; print('curobo OK (src):', curobo.__file__)"
+  }
 }
 
 rt_install_cuda_toolkit
