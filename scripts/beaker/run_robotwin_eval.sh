@@ -176,9 +176,14 @@ beaker_install_sim_deps() {
     pip_install=("${PYTHON}" -m pip install --no-cache-dir)
   fi
 
-  # The minimal uv gantry venv has no setuptools, but sapien's __init__ imports
-  # pkg_resources (shipped by setuptools). Install it first.
-  "${pip_install[@]}" setuptools wheel || true
+  # sapien's __init__ imports pkg_resources, which setuptools REMOVED in v81.
+  # The minimal uv venv has no setuptools, so install a pre-81 release that still
+  # ships pkg_resources, and verify (fall back to a known-good pin if needed).
+  "${pip_install[@]}" "setuptools<81" wheel || true
+  if ! "${PYTHON}" -c "import pkg_resources" >/dev/null 2>&1; then
+    echo "[beaker-rt] pkg_resources missing; pinning setuptools==70.2.0" >&2
+    "${pip_install[@]}" "setuptools==70.2.0" || true
+  fi
 
   # Prefer an exact requirements file staged on Weka so versions match the
   # prebuilt curobo / sapien used when collecting the assets.
