@@ -177,10 +177,10 @@ GANTRY_ARGS=(
   --env "EVAL_HYDRA_OVERRIDES=${EVAL_HYDRA_OVERRIDES}"
   --env "SKIP_ROBOTWIN_INSTALL=${SKIP_ROBOTWIN_INSTALL}"
   # SAPIEN renders via Vulkan. The NVIDIA container runtime only injects the
-  # graphics/Vulkan driver stack when these capabilities are requested at container
+  # graphics/Vulkan driver stack when this capability is requested at container
   # start; the default (compute,utility) yields "failed to find a rendering device".
+  # (NVIDIA_VISIBLE_DEVICES is managed by Beaker and is a forbidden env var.)
   --env "NVIDIA_DRIVER_CAPABILITIES=all"
-  --env "NVIDIA_VISIBLE_DEVICES=all"
   --python-manager uv
   --uv-torch-backend cu128
   --default-python-version 3.10
