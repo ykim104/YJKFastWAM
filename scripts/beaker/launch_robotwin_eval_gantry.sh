@@ -159,8 +159,6 @@ GANTRY_ARGS=(
   --priority "${PRIORITY}"
   --gpus "${NUM_GPUS}"
   --replicas 1
-  --shared-memory 32GiB
-  --memory 128GiB
   --weka "${WEKA_BUCKET}:/weka/${WEKA_MOUNT}"
   --cluster "ai2/saturn"
   --cluster "ai2/jupiter"
