@@ -339,12 +339,28 @@ beaker_fix_embodiment_paths() {
     | sed 's/^/[beaker-rt]   /' || echo "[beaker-rt] WARNING: embodiment path fixup returned nonzero" >&2
 }
 
+# The manager + single-eval write results/videos to PROJECT_ROOT/evaluate_results
+# (the gantry clone), ignoring EVALUATION.output_dir for the actual path. That dir
+# is ephemeral, so symlink it onto Weka so outputs (summaries, _result_*.txt,
+# episode videos) persist after the job exits.
+beaker_link_eval_outputs() {
+  local weka_eval_root="${FASTWAM_RUNS_ROOT}/eval"
+  mkdir -p "${weka_eval_root}"
+  local link="${REPO_ROOT}/evaluate_results"
+  if [[ -e "${link}" && ! -L "${link}" ]]; then
+    rm -rf "${link}"
+  fi
+  ln -sfn "${weka_eval_root}" "${link}"
+  echo "[beaker-rt] evaluate_results -> ${weka_eval_root} (persisted on Weka)"
+}
+
 beaker_check_weka
 beaker_check_robotwin_env
 beaker_resolve_eval_paths
 beaker_install_sim_deps
 beaker_link_robotwin_env
 beaker_link_policy
+beaker_link_eval_outputs
 beaker_fix_embodiment_paths
 beaker_register_nvidia_vulkan
 
