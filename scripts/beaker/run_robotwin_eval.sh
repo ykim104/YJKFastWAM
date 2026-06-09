@@ -314,12 +314,34 @@ EOF
   fi
 }
 
+# RoboTwin's embodiment/curobo .yml configs embed ABSOLUTE asset paths, expanded
+# from ${ASSETS_PATH} by update_embodiment_config_path.py at download time (on the
+# staging box that was '/root/RoboTwin'). Regenerate them from the *_tmp.yml
+# templates so the paths point at the staged Weka assets (stable, always mounted).
+beaker_fix_embodiment_paths() {
+  local rt="${ROBOTWIN_ENV_DIR}"
+  if [[ ! -d "${rt}/assets/embodiments" ]]; then
+    echo "[beaker-rt] WARNING: ${rt}/assets/embodiments missing; skipping embodiment path fixup" >&2
+    return 0
+  fi
+  if ! ls "${rt}"/assets/embodiments/**/*_tmp.yml >/dev/null 2>&1 && \
+     [[ -z "$(find "${rt}/assets/embodiments" -name '*_tmp.yml' -print -quit 2>/dev/null)" ]]; then
+    echo "[beaker-rt] WARNING: no *_tmp.yml templates under ${rt}/assets/embodiments;" >&2
+    echo "[beaker-rt]          existing .yml may keep stale absolute paths." >&2
+    return 0
+  fi
+  echo "[beaker-rt] Regenerating embodiment configs with ASSETS_PATH=${rt}"
+  ( cd "${rt}" && "${PYTHON}" script/update_embodiment_config_path.py < /dev/null ) \
+    | sed 's/^/[beaker-rt]   /' || echo "[beaker-rt] WARNING: embodiment path fixup returned nonzero" >&2
+}
+
 beaker_check_weka
 beaker_check_robotwin_env
 beaker_resolve_eval_paths
 beaker_install_sim_deps
 beaker_link_robotwin_env
 beaker_link_policy
+beaker_fix_embodiment_paths
 beaker_register_nvidia_vulkan
 
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
