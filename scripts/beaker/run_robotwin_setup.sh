@@ -31,6 +31,10 @@ source "${_BEAKER_SCRIPT_DIR}/setup_job_env.sh"
 WEKA_ROOT="${WEKA_ROOT:-/weka/oe-training/${USER_NAME:-yejink}}"
 ROBOTWIN_ENV_DIR="${ROBOTWIN_ENV_DIR:-${WEKA_ROOT}/robotwin/RoboTwin}"
 CUROBO_GIT="${CUROBO_GIT:-https://github.com/NVlabs/curobo.git}"
+# RoboTwin uses curobo's classic API (curobo.wrap.*, pybind CUDA ext). curobo main
+# was restructured to curobo/_src/* + cuda.core runtime compilation and dropped
+# curobo.wrap, so we pin a compatible release tag.
+CUROBO_REF="${CUROBO_REF:-v0.7.6}"
 CUDA_TOOLKIT_VERSION="${CUDA_TOOLKIT_VERSION:-12-8}"
 
 if [[ ! -d "/weka/oe-training" ]]; then
@@ -96,29 +100,39 @@ rt_pip() {
   fi
 }
 
-# Editable install in setuptools "compat" mode: unlike uv's default PEP 660
-# editable (which hid curobo.wrap and skipped the in-place ext build), compat mode
-# runs build_ext in-place (compiling the CUDA .so into the source tree, cached on
-# Weka) and adds the real src/ dir to the path so all submodules import.
+# Editable install via REAL pip in setuptools "compat" mode. uv's editable
+# (strict PEP 660) only exposed the top-level `curobo` (hiding curobo.wrap) and
+# its registered finder even shadows a PYTHONPATH=src fallback. pip's compat mode
+# writes a .pth that adds src/ so every submodule resolves, and runs build_ext
+# in-place (compiling the CUDA .so into the source tree, cached on Weka).
+rt_ensure_pip() {
+  if "${PYTHON}" -m pip --version >/dev/null 2>&1; then return 0; fi
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install --python "${PYTHON}" pip setuptools wheel
+  else
+    "${PYTHON}" -m ensurepip --upgrade
+  fi
+}
 rt_pip_editable_compat() {
   local dir="$1"
-  if command -v uv >/dev/null 2>&1; then
-    uv pip install --python "${PYTHON}" -e "${dir}" --no-build-isolation \
-      --config-setting editable_mode=compat
-  else
-    "${PYTHON}" -m pip install --no-cache-dir -e "${dir}" --no-build-isolation \
-      --config-settings editable_mode=compat
-  fi
+  rt_ensure_pip
+  # Drop any broken prior editable registration (e.g. uv's) so its finder can't
+  # shadow this install.
+  "${PYTHON}" -m pip uninstall -y nvidia-curobo >/dev/null 2>&1 || true
+  "${PYTHON}" -m pip install --no-cache-dir --no-build-isolation \
+    --config-settings editable_mode=compat -e "${dir}"
 }
 
 rt_build_curobo() {
   local curobo_dir="${ROBOTWIN_ENV_DIR}/envs/curobo"
-  if [[ ! -f "${curobo_dir}/setup.py" && ! -f "${curobo_dir}/pyproject.toml" ]]; then
-    echo "[rt-setup] Cloning curobo into ${curobo_dir}"
+  # (Re)clone at the pinned tag if the expected v0.7.x src/ layout isn't present.
+  # A prior run may have cloned `main` (root curobo/_src layout, no curobo.wrap).
+  if [[ ! -d "${curobo_dir}/src/curobo/wrap" ]]; then
+    echo "[rt-setup] Cloning curobo ${CUROBO_REF} into ${curobo_dir}"
     rm -rf "${curobo_dir}"
-    git clone "${CUROBO_GIT}" "${curobo_dir}"
+    git clone --depth 1 --branch "${CUROBO_REF}" "${CUROBO_GIT}" "${curobo_dir}"
   else
-    echo "[rt-setup] Reusing existing curobo source at ${curobo_dir}"
+    echo "[rt-setup] Reusing existing curobo (${CUROBO_REF}) at ${curobo_dir}"
   fi
 
   # Cover A100 (8.0), L40/L40S (8.9), H100 (9.0). Building for several arches is
@@ -130,15 +144,15 @@ rt_build_curobo() {
   rt_pip "warp-lang" || true
   rt_pip_editable_compat "${curobo_dir}"
 
-  # Belt-and-suspenders: force the in-place extension build so the .so are present
-  # in the source tree on Weka even if the editable install skipped build_ext.
+  # Belt-and-suspenders: force the in-place extension build so the .so land in the
+  # src/ tree on Weka (cached) even if the editable install skipped build_ext.
   echo "[rt-setup] Compiling curobo CUDA extensions in-place (nvcc)..."
   ( cd "${curobo_dir}" && "${PYTHON}" setup.py build_ext --inplace ) || \
     echo "[rt-setup] WARNING: build_ext --inplace returned nonzero (check logs)" >&2
 
   echo "[rt-setup] Verifying curobo import..."
   "${PYTHON}" -c "import curobo; from curobo.wrap.reacher.motion_gen import MotionGen; print('curobo OK:', curobo.__file__)" || {
-    echo "[rt-setup] editable import still failing; verifying via PYTHONPATH=src fallback..." >&2
+    echo "[rt-setup] editable import failing; verifying via PYTHONPATH=src fallback..." >&2
     PYTHONPATH="${curobo_dir}/src:${PYTHONPATH:-}" "${PYTHON}" -c \
       "import curobo; from curobo.wrap.reacher.motion_gen import MotionGen; print('curobo OK (src):', curobo.__file__)"
   }

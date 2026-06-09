@@ -209,27 +209,30 @@ beaker_install_sim_deps() {
   # reuses the .so (no recompile, no nvcc needed) and pulls curobo's runtime deps
   # (warp-lang, etc.) into this fresh venv.
   local curobo_dir="${ROBOTWIN_ENV_DIR}/envs/curobo"
-  if ! "${PYTHON}" -c "import curobo; import curobo.wrap" >/dev/null 2>&1; then
+  if ! "${PYTHON}" -c "import curobo.wrap" >/dev/null 2>&1; then
     if [[ -d "${curobo_dir}" ]]; then
-      echo "[beaker-rt] Registering prebuilt curobo from staged env (editable compat)"
+      echo "[beaker-rt] Registering prebuilt curobo from staged env (pip editable compat)"
       "${pip_install[@]}" "warp-lang" || true
-      # compat editable: exposes all submodules and reuses the prebuilt .so (no
-      # recompile -> no nvcc needed) since they were built by run_robotwin_setup.sh.
-      if command -v uv >/dev/null 2>&1; then
-        "${pip_install[@]}" -e "${curobo_dir}" --no-build-isolation --config-setting editable_mode=compat || true
-      else
-        "${pip_install[@]}" -e "${curobo_dir}" --no-build-isolation --config-settings editable_mode=compat || true
-      fi
+      # Use REAL pip in compat mode (not uv): uv's strict editable hides curobo.wrap
+      # and shadows PYTHONPATH. compat mode reuses the prebuilt .so (no recompile).
+      "${PYTHON}" -m pip --version >/dev/null 2>&1 || { command -v uv >/dev/null 2>&1 && uv pip install --python "${PYTHON}" pip setuptools wheel; }
+      "${PYTHON}" -m pip uninstall -y nvidia-curobo >/dev/null 2>&1 || true
+      "${PYTHON}" -m pip install --no-cache-dir --no-build-isolation \
+        --config-settings editable_mode=compat -e "${curobo_dir}" || true
     else
       echo "[beaker-rt] ERROR: curobo not importable and no staged envs/curobo." >&2
       echo "[beaker-rt] Build it first: scripts/beaker/launch_robotwin_setup_gantry.sh" >&2
       exit 1
     fi
   fi
-  # Final guarantee: if curobo.wrap still isn't importable, fall back to src/ on PYTHONPATH.
+  # Final guarantee: if curobo.wrap still isn't importable, fall back to src/ on
+  # PYTHONPATH (only works once the shadowing editable finder above is gone).
   if ! "${PYTHON}" -c "import curobo.wrap" >/dev/null 2>&1; then
-    if [[ -d "${curobo_dir}/src/curobo" ]]; then
+    # curobo v0.7.x is a src/ layout; add it directly so curobo.wrap resolves from
+    # the prebuilt source tree even if the editable finder is incomplete.
+    if [[ -d "${curobo_dir}/src/curobo/wrap" ]]; then
       echo "[beaker-rt] Adding curobo src/ to PYTHONPATH (editable finder fallback)"
+      "${PYTHON}" -m pip uninstall -y nvidia-curobo >/dev/null 2>&1 || true
       export PYTHONPATH="${curobo_dir}/src:${PYTHONPATH:-}"
     fi
     "${PYTHON}" -c "import curobo.wrap; from curobo.wrap.reacher.motion_gen import MotionGen" || {
