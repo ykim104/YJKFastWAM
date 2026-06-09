@@ -200,7 +200,7 @@ beaker_install_sim_deps() {
     # because they need a real CUDA toolkit to build (not present in this image).
     "${pip_install[@]}" \
       "sapien==3.0.0b1" \
-      "mplib==0.1.1" \
+      "mplib==0.2.1" \
       "toppra" \
       "transforms3d" \
       "trimesh" \
