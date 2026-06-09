@@ -330,6 +330,16 @@ export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
 # and leaves no result file. Reproduce that exact setup here and print the real
 # traceback so failures are diagnosable (non-fatal; the manager runs regardless).
 beaker_probe_sapien_render() {
+  echo "[beaker-rt] --- render diagnostics ---"
+  echo "[beaker-rt] NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-<unset>}"
+  echo "[beaker-rt] VK_ICD_FILENAMES=${VK_ICD_FILENAMES:-<unset>}"
+  echo "[beaker-rt] CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
+  nvidia-smi -L 2>&1 | head -8 | sed 's/^/[beaker-rt]   /' || true
+  ls -1 /etc/vulkan/icd.d /usr/share/vulkan/icd.d 2>/dev/null | sed 's/^/[beaker-rt]   icd: /' || true
+  ldconfig -p 2>/dev/null | grep -iE "libGLX_nvidia|libvulkan|libnvidia-glvkspirv|libnvidia-rtcore" | sed 's/^/[beaker-rt]   lib: /' || true
+  if command -v vulkaninfo >/dev/null 2>&1; then
+    vulkaninfo --summary 2>&1 | grep -iE "deviceName|driverName|apiVersion|GPU id|deviceType" | head -12 | sed 's/^/[beaker-rt]   vk: /' || true
+  fi
   echo "[beaker-rt] Probing SAPIEN ray-tracing render setup (real traceback if it fails)..."
   "${PYTHON}" - <<'PY' || echo "[beaker-rt] WARNING: SAPIEN render probe FAILED (see traceback above)"
 import traceback
