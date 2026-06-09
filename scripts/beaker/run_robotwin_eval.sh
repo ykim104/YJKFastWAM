@@ -235,6 +235,10 @@ beaker_install_sim_deps() {
       echo "[beaker-rt] WARNING: ${curobo_reqs} missing; installing hardcoded curobo deps" >&2
       "${pip_install[@]}" "warp-lang" yourdfpy "trimesh[easy]" numpy-quaternion networkx scipy pyyaml importlib_resources || true
     fi
+    # curobo v0.7.6 pins warp-lang>=0.9.0 (open), but warp>=1.x no longer auto-exposes
+    # the `warp.torch` submodule that curobo accesses as `wp.torch.device_from_torch`.
+    # Pin a compatible warp release.
+    "${pip_install[@]}" "warp-lang==${CUROBO_WARP_VERSION:-1.0.2}" || true
     # Drop any stale editable finder so PYTHONPATH=src wins, then expose the prebuilt tree.
     "${PYTHON}" -m pip uninstall -y nvidia-curobo >/dev/null 2>&1 || true
     export PYTHONPATH="${curobo_dir}/src:${PYTHONPATH:-}"
