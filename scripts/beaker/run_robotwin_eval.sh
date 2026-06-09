@@ -325,6 +325,43 @@ beaker_register_nvidia_vulkan
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
 export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
 
+# RoboTwin's render setup (envs/_base_task.py and script/test_render.py) swallows
+# render errors with a bare `except: print("Render Error"); exit()`, which exits 0
+# and leaves no result file. Reproduce that exact setup here and print the real
+# traceback so failures are diagnosable (non-fatal; the manager runs regardless).
+beaker_probe_sapien_render() {
+  echo "[beaker-rt] Probing SAPIEN ray-tracing render setup (real traceback if it fails)..."
+  "${PYTHON}" - <<'PY' || echo "[beaker-rt] WARNING: SAPIEN render probe FAILED (see traceback above)"
+import traceback
+import sapien.core as sapien
+
+def setup(denoiser):
+    eng = sapien.Engine()
+    from sapien.render import set_global_config
+    set_global_config(max_num_materials=50000, max_num_textures=50000)
+    r = sapien.SapienRenderer()
+    eng.set_renderer(r)
+    sapien.render.set_camera_shader_dir("rt")
+    sapien.render.set_ray_tracing_samples_per_pixel(32)
+    sapien.render.set_ray_tracing_path_depth(8)
+    if denoiser is not None:
+        sapien.render.set_ray_tracing_denoiser(denoiser)
+    eng.create_scene(sapien.SceneConfig())
+    return r
+
+# Probe the exact RoboTwin config (oidn), then weaker denoisers to localize the cause.
+for d in ("oidn", "optix", None):
+    try:
+        setup(d)
+        print(f"[probe] RENDER OK (rt shader, denoiser={d})")
+        break
+    except Exception:
+        print(f"[probe] RENDER FAIL (rt shader, denoiser={d}):")
+        traceback.print_exc()
+PY
+}
+beaker_probe_sapien_render
+
 RUN_TAG="${EVAL_RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 EVAL_OUTPUT_DIR="${EVAL_OUTPUT_DIR:-${FASTWAM_RUNS_ROOT}/eval/robotwin/${TASK}/${RUN_TAG}}"
 mkdir -p "${EVAL_OUTPUT_DIR}"
