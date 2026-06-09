@@ -156,6 +156,32 @@ rt_build_curobo() {
     PYTHONPATH="${curobo_dir}/src:${PYTHONPATH:-}" "${PYTHON}" -c \
       "import curobo; from curobo.wrap.reacher.motion_gen import MotionGen; print('curobo OK (src):', curobo.__file__)"
   }
+
+  rt_write_curobo_requirements "${curobo_dir}"
+}
+
+# The eval image has no nvcc, so it can't `pip install -e` curobo (build_ext fails)
+# and curobo's runtime deps (yourdfpy, trimesh[easy], ...) only live in this setup
+# venv. Persist curobo's declared deps to Weka so eval installs them WITHOUT
+# building, then imports curobo from the prebuilt src/ tree via PYTHONPATH.
+rt_write_curobo_requirements() {
+  local curobo_dir="$1"
+  local out="${ROBOTWIN_ENV_DIR}/envs/curobo_requirements.txt"
+  local egg_req
+  egg_req="$(find "${curobo_dir}" -path "*nvidia_curobo.egg-info/requires.txt" 2>/dev/null | head -1)"
+  {
+    echo "warp-lang"
+    if [[ -n "${egg_req}" && -f "${egg_req}" ]]; then
+      # egg-info requires.txt lists base deps before the first [extras] section.
+      # Drop torch (already in the cu128 venv; reinstalling would break it).
+      awk 'BEGIN{p=1} /^\[/{p=0} p && NF{print}' "${egg_req}" | grep -viE "^torch([^A-Za-z0-9_]|$)"
+    else
+      echo "[rt-setup] WARNING: egg-info requires.txt not found; writing hardcoded deps" >&2
+      printf '%s\n' yourdfpy "trimesh[easy]" numpy-quaternion networkx scipy pyyaml importlib_resources
+    fi
+  } | sort -u > "${out}"
+  echo "[rt-setup] wrote curobo deps -> ${out}"
+  sed 's/^/  /' "${out}"
 }
 
 rt_install_cuda_toolkit

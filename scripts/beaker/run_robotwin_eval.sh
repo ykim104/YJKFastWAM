@@ -210,36 +210,31 @@ beaker_install_sim_deps() {
   # (warp-lang, etc.) into this fresh venv.
   local curobo_dir="${ROBOTWIN_ENV_DIR}/envs/curobo"
   if ! "${PYTHON}" -c "import curobo.wrap" >/dev/null 2>&1; then
-    if [[ -d "${curobo_dir}" ]]; then
-      echo "[beaker-rt] Registering prebuilt curobo from staged env (pip editable compat)"
-      "${pip_install[@]}" "warp-lang" || true
-      # Use REAL pip in compat mode (not uv): uv's strict editable hides curobo.wrap
-      # and shadows PYTHONPATH. compat mode reuses the prebuilt .so (no recompile).
-      "${PYTHON}" -m pip --version >/dev/null 2>&1 || { command -v uv >/dev/null 2>&1 && uv pip install --python "${PYTHON}" pip setuptools wheel; }
-      "${PYTHON}" -m pip uninstall -y nvidia-curobo >/dev/null 2>&1 || true
-      "${PYTHON}" -m pip install --no-cache-dir --no-build-isolation \
-        --config-settings editable_mode=compat -e "${curobo_dir}" || true
-    else
-      echo "[beaker-rt] ERROR: curobo not importable and no staged envs/curobo." >&2
+    if [[ ! -d "${curobo_dir}/src/curobo/wrap" ]]; then
+      echo "[beaker-rt] ERROR: prebuilt curobo (v0.7.x src/ layout) not found at ${curobo_dir}." >&2
       echo "[beaker-rt] Build it first: scripts/beaker/launch_robotwin_setup_gantry.sh" >&2
       exit 1
     fi
-  fi
-  # Final guarantee: if curobo.wrap still isn't importable, fall back to src/ on
-  # PYTHONPATH (only works once the shadowing editable finder above is gone).
-  if ! "${PYTHON}" -c "import curobo.wrap" >/dev/null 2>&1; then
-    # curobo v0.7.x is a src/ layout; add it directly so curobo.wrap resolves from
-    # the prebuilt source tree even if the editable finder is incomplete.
-    if [[ -d "${curobo_dir}/src/curobo/wrap" ]]; then
-      echo "[beaker-rt] Adding curobo src/ to PYTHONPATH (editable finder fallback)"
-      "${PYTHON}" -m pip uninstall -y nvidia-curobo >/dev/null 2>&1 || true
-      export PYTHONPATH="${curobo_dir}/src:${PYTHONPATH:-}"
+    # This image has no real nvcc, so we must NOT `pip install -e` curobo (build_ext
+    # would fail). The CUDA .so were prebuilt on Weka by the setup job; we only
+    # install curobo's runtime deps and import it from src/ via PYTHONPATH.
+    echo "[beaker-rt] Installing curobo runtime deps (no build) + src/ on PYTHONPATH"
+    local curobo_reqs="${ROBOTWIN_ENV_DIR}/envs/curobo_requirements.txt"
+    if [[ -f "${curobo_reqs}" ]]; then
+      "${pip_install[@]}" -r "${curobo_reqs}" || true
+    else
+      echo "[beaker-rt] WARNING: ${curobo_reqs} missing; installing hardcoded curobo deps" >&2
+      "${pip_install[@]}" "warp-lang" yourdfpy "trimesh[easy]" numpy-quaternion networkx scipy pyyaml importlib_resources || true
     fi
-    "${PYTHON}" -c "import curobo.wrap; from curobo.wrap.reacher.motion_gen import MotionGen" || {
-      echo "[beaker-rt] ERROR: curobo.wrap unimportable; re-run launch_robotwin_setup_gantry.sh." >&2
-      exit 1
-    }
+    # Drop any stale editable finder so PYTHONPATH=src wins, then expose the prebuilt tree.
+    "${PYTHON}" -m pip uninstall -y nvidia-curobo >/dev/null 2>&1 || true
+    export PYTHONPATH="${curobo_dir}/src:${PYTHONPATH:-}"
   fi
+
+  "${PYTHON}" -c "import curobo.wrap; from curobo.wrap.reacher.motion_gen import MotionGen; print('[beaker-rt] curobo OK:', curobo.__file__)" || {
+    echo "[beaker-rt] ERROR: curobo.wrap unimportable after dep install; re-run launch_robotwin_setup_gantry.sh." >&2
+    exit 1
+  }
 
   beaker_patch_sim_pkgs
 }
