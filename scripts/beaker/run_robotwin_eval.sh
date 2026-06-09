@@ -176,6 +176,10 @@ beaker_install_sim_deps() {
     pip_install=("${PYTHON}" -m pip install --no-cache-dir)
   fi
 
+  # The minimal uv gantry venv has no setuptools, but sapien's __init__ imports
+  # pkg_resources (shipped by setuptools). Install it first.
+  "${pip_install[@]}" setuptools wheel || true
+
   # Prefer an exact requirements file staged on Weka so versions match the
   # prebuilt curobo / sapien used when collecting the assets.
   local reqs="${ROBOTWIN_PIP_REQS:-}"
@@ -261,26 +265,47 @@ beaker_patch_sim_pkgs() {
 # SAPIEN uses Vulkan; Beaker NVIDIA containers mount the driver but may lack the
 # Vulkan ICD manifest, so register NVIDIA's ICD like run_eval.sh does for EGL.
 beaker_register_nvidia_vulkan() {
-  local libnvvk icd
-  libnvvk="$(ldconfig -p 2>/dev/null | awk '/libGLX_nvidia.so.0/ {print $NF; exit}')"
-  icd="/usr/share/vulkan/icd.d/nvidia_icd.json"
-  if [[ -f "${icd}" ]]; then
-    export VK_ICD_FILENAMES="${icd}"
-    echo "[beaker-rt] Using existing Vulkan ICD: ${icd}"
-    return 0
+  # Prefer an existing NVIDIA ICD manifest (NVIDIA container runtime usually injects one).
+  local icd existing
+  for existing in \
+    /usr/share/vulkan/icd.d/nvidia_icd.json \
+    /etc/vulkan/icd.d/nvidia_icd.json; do
+    if [[ -f "${existing}" ]]; then
+      export VK_ICD_FILENAMES="${existing}"
+      echo "[beaker-rt] Using existing Vulkan ICD: ${existing}"
+      return 0
+    fi
+  done
+
+  # Refresh the linker cache, then locate the NVIDIA GLVND/Vulkan driver lib.
+  ldconfig 2>/dev/null || true
+  local libnvvk
+  libnvvk="$(ldconfig -p 2>/dev/null | awk '/libGLX_nvidia\.so\.0/ {print $NF; exit}')"
+  if [[ -z "${libnvvk}" ]]; then
+    local cand
+    for cand in \
+      /usr/lib/x86_64-linux-gnu/libGLX_nvidia.so.0 \
+      /usr/lib64/libGLX_nvidia.so.0 \
+      /usr/lib/libGLX_nvidia.so.0 \
+      /usr/local/nvidia/lib64/libGLX_nvidia.so.0; do
+      [[ -e "${cand}" ]] && { libnvvk="${cand}"; break; }
+    done
   fi
+
+  icd="/usr/share/vulkan/icd.d/nvidia_icd.json"
+  mkdir -p /usr/share/vulkan/icd.d || true
   if [[ -n "${libnvvk}" ]]; then
-    mkdir -p /usr/share/vulkan/icd.d || true
     cat > "${icd}" <<EOF
 {
     "file_format_version" : "1.0.0",
-    "ICD" : { "library_path" : "libGLX_nvidia.so.0", "api_version" : "1.3.0" }
+    "ICD" : { "library_path" : "${libnvvk}", "api_version" : "1.3.0" }
 }
 EOF
     export VK_ICD_FILENAMES="${icd}"
-    echo "[beaker-rt] Registered NVIDIA Vulkan ICD: ${icd}"
+    echo "[beaker-rt] Registered NVIDIA Vulkan ICD: ${icd} -> ${libnvvk}"
   else
-    echo "[beaker-rt] WARNING: NVIDIA Vulkan lib not found; SAPIEN rendering may fail" >&2
+    echo "[beaker-rt] WARNING: NVIDIA Vulkan lib not found; SAPIEN rendering may fail." >&2
+    echo "[beaker-rt] (ldconfig has no libGLX_nvidia.so.0; check the node's GPU/driver mount)" >&2
   fi
 }
 
