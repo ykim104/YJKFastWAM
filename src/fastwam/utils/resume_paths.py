@@ -125,9 +125,14 @@ def resolve_eval_ckpt(resume: str | Path) -> tuple[str, str | None]:
     else:
         path = path.resolve()
 
+    run_dir: Path | None = None
     if path.is_file() and path.suffix == ".pt":
         ckpt = path
-        run_dir = run_dir_from_weights_file(path)
+        try:
+            run_dir = run_dir_from_weights_file(path)
+        except ValueError:
+            # Flat checkpoint (e.g. a released .pt not under checkpoints/weights/).
+            run_dir = None
     elif _is_state_step_layout(path):
         run_dir = run_dir_from_state_dir(path)
         ckpt = run_dir / "checkpoints" / "weights" / f"{path.name}.pt"
@@ -136,7 +141,10 @@ def resolve_eval_ckpt(resume: str | Path) -> tuple[str, str | None]:
         resolved = Path(resume_path)
         if resolved.is_file() and resolved.suffix == ".pt":
             ckpt = resolved
-            run_dir = run_dir_from_weights_file(resolved)
+            try:
+                run_dir = run_dir_from_weights_file(resolved)
+            except ValueError:
+                run_dir = None
         elif _is_state_step_layout(resolved):
             run_dir = run_dir_from_state_dir(resolved)
             ckpt = run_dir / "checkpoints" / "weights" / f"{resolved.name}.pt"
@@ -149,6 +157,16 @@ def resolve_eval_ckpt(resume: str | Path) -> tuple[str, str | None]:
     if not ckpt.is_file():
         raise FileNotFoundError(f"Eval weights checkpoint not found: {ckpt}")
 
-    stats_path = run_dir / "dataset_stats.json"
-    stats = str(stats_path) if stats_path.is_file() else None
+    # Auto-discover a sibling dataset_stats.json (run dir for trained ckpts, or the
+    # checkpoint's own directory for flat/released ckpts). Optional: the eval
+    # entrypoint may also pass dataset_stats explicitly.
+    stats = None
+    candidates = []
+    if run_dir is not None:
+        candidates.append(run_dir / "dataset_stats.json")
+    candidates.append(ckpt.parent / "dataset_stats.json")
+    for stats_path in candidates:
+        if stats_path.is_file():
+            stats = str(stats_path)
+            break
     return str(ckpt), stats
