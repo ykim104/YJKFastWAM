@@ -157,6 +157,7 @@ GANTRY_ARGS=(
   --workspace "${WORKSPACE}"
   --budget "${BUDGET}"
   --priority "${PRIORITY}"
+  --gh-token-secret YEJINK_GITHUB_TOKEN
   --gpus "${NUM_GPUS}"
   --replicas 1
   --weka "${WEKA_BUCKET}:/weka/${WEKA_MOUNT}"

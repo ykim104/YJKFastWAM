@@ -118,6 +118,7 @@ GANTRY_ARGS=(
   --workspace "${WORKSPACE}"
   --budget "${BUDGET}"
   --priority "${PRIORITY}"
+  --gh-token-secret YEJINK_GITHUB_TOKEN
   --gpus "${NUM_GPUS}"
   --replicas "${NUM_NODES}"
 #  --shared-memory 64GiB
