@@ -68,9 +68,16 @@ beaker_apply_memory_overrides() {
   local reason="${1:-}"
   local batch_size="${2:-8}"
   local grad_accum="${3:-2}"
-  # Append after user CLI overrides — Hydra uses the last value for duplicate keys.
-  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} batch_size=${batch_size} gradient_accumulation_steps=${grad_accum} model.mot_checkpoint_mixed_attn=true"
-  echo "[beaker] memory Hydra overrides (${reason}): batch_size=${batch_size} grad_accum=${grad_accum} mot_checkpoint=true"
+  # batch_size + grad checkpointing are forced for memory safety (Hydra last-wins).
+  # gradient_accumulation_steps is left to the user when set explicitly, so the
+  # effective batch can be tuned (e.g. grad_accum=16 -> global batch 1024 on 8 GPUs).
+  local ga_override="gradient_accumulation_steps=${grad_accum}"
+  if [[ " ${HYDRA_OVERRIDES} " == *" gradient_accumulation_steps="* ]]; then
+    ga_override=""
+    echo "[beaker] keeping user gradient_accumulation_steps (memory default ${grad_accum} skipped)"
+  fi
+  HYDRA_OVERRIDES="${HYDRA_OVERRIDES} batch_size=${batch_size} ${ga_override} model.mot_checkpoint_mixed_attn=true"
+  echo "[beaker] memory Hydra overrides (${reason}): batch_size=${batch_size} grad_accum=${ga_override:-<user>} mot_checkpoint=true"
 }
 
 beaker_query_gpu_mem_mib() {
